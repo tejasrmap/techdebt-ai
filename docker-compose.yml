@@ -1,0 +1,80 @@
+services:
+  db:
+    image: postgres:15-alpine
+    container_name: techdebt_postgres
+    restart: always
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-postgres}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required and must not be empty}
+      POSTGRES_DB: ${POSTGRES_DB:-techdebt_db}
+    # Restrict PostgreSQL network exposure to localhost only
+    ports:
+      - "127.0.0.1:5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-postgres}"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: techdebt_backend
+    restart: always
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}@db:5432/${POSTGRES_DB:-techdebt_db}
+      SECRET_KEY: ${SECRET_KEY:?SECRET_KEY is required and must not be empty}
+      ENCRYPTION_KEY: ${ENCRYPTION_KEY:?ENCRYPTION_KEY is required and must not be empty}
+      ENVIRONMENT: ${ENVIRONMENT:-production}
+      ENABLE_DEMO_SEED: ${ENABLE_DEMO_SEED:-false}
+      CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost,http://localhost:80}
+      ALLOW_PLATFORM_INTEGRATION_FALLBACK: ${ALLOW_PLATFORM_INTEGRATION_FALLBACK:-false}
+      FIRECRAWL_API_KEY: ${FIRECRAWL_API_KEY:-}
+      GEMINI_API_KEY: ${GEMINI_API_KEY:-}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+    # Restrict direct backend exposure; frontend Nginx proxies /api/ requests
+    ports:
+      - "127.0.0.1:8000:8000"
+
+  worker:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: techdebt_worker
+    restart: always
+    depends_on:
+      db:
+        condition: service_healthy
+      backend:
+        condition: service_started
+    environment:
+      DATABASE_URL: postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}@db:5432/${POSTGRES_DB:-techdebt_db}
+      SECRET_KEY: ${SECRET_KEY:?SECRET_KEY is required and must not be empty}
+      ENCRYPTION_KEY: ${ENCRYPTION_KEY:?ENCRYPTION_KEY is required and must not be empty}
+      ENVIRONMENT: ${ENVIRONMENT:-production}
+      ENABLE_DEMO_SEED: "false"
+      ALLOW_PLATFORM_INTEGRATION_FALLBACK: ${ALLOW_PLATFORM_INTEGRATION_FALLBACK:-false}
+      FIRECRAWL_API_KEY: ${FIRECRAWL_API_KEY:-}
+      GEMINI_API_KEY: ${GEMINI_API_KEY:-}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+    command: ["python", "-m", "app.worker"]
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: techdebt_frontend
+    restart: always
+    depends_on:
+      - backend
+    ports:
+      - "80:80"
+
+volumes:
+  postgres_data:
