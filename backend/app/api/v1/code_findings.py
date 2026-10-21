@@ -1,0 +1,146 @@
+from typing import Optional, List
+from fastapi import APIRouter, Depends, HTTPException, Query
+from sqlalchemy.orm import Session
+
+from app.database import get_db
+from app.models.all_models import User, CodeFinding, Assessment, Project
+from app.services.auth_service import get_current_user
+
+router = APIRouter(prefix="/code-findings", tags=["Code Findings & Diagnostics"])
+
+@router.get("/assessment/{assessment_id}")
+def get_assessment_code_findings(
+    assessment_id: str,
+    severity: Optional[str] = Query(None, description="Filter by severity: Critical, High, Medium, Low, Info"),
+    category: Optional[str] = Query(None, description="Filter by category: security, complexity, maintainability, architecture, reliability"),
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """Retrieve fine-grained source code diagnostic findings with exact file line anchors and remediation recipes."""
+    assessment = db.query(Assessment).join(Project, Assessment.project_id == Project.id).filter(
+        Assessment.id == assessment_id,
+        Project.org_id == current_user.org_id
+    ).first()
+
+    if not assessment:
+        raise HTTPException(status_code=404, detail="Assessment not found or access denied")
+
+    query = db.query(CodeFinding).filter(CodeFinding.assessment_id == assessment_id)
+    if severity:
+        query = query.filter(CodeFinding.severity == severity)
+    if category:
+        query = query.filter(CodeFinding.category == category)
+
+    findings = query.order_by(
+        CodeFinding.severity.desc(),
+        CodeFinding.file_path.asc(),
+        CodeFinding.line_start.asc()
+    ).all()
+
+    return [
+        {
+            "id": f.id,
+            "assessment_id": f.assessment_id,
+            "project_id": f.project_id,
+            "file_path": f.file_path,
+            "line_start": f.line_start,
+            "line_end": f.line_end,
+            "rule_id": f.rule_id,
+            "category": f.category,
+            "severity": f.severity,
+            "confidence": f.confidence,
+            "title": f.title,
+            "explanation": f.explanation,
+            "technical_evidence": f.technical_evidence,
+            "why_it_matters": f.why_it_matters,
+            "recommended_remediation": f.recommended_remediation,
+            "estimated_remediation_hours": f.estimated_remediation_hours,
+            "is_auto_verifiable": f.is_auto_verifiable,
+            "created_at": f.created_at.isoformat()
+        }
+        for f in findings
+    ]
+
+@router.get("/project/{project_id}")
+def get_project_latest_findings(
+    project_id: str,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """Retrieve code findings from the most recent completed assessment for a project."""
+    project = db.query(Project).filter(Project.id == project_id, Project.org_id == current_user.org_id).first()
+    if not project:
+        raise HTTPException(status_code=404, detail="Project not found")
+
+    latest_assessment = (
+        db.query(Assessment)
+        .filter(Assessment.project_id == project_id, Assessment.status == "completed")
+        .order_by(Assessment.created_at.desc())
+        .first()
+    )
+
+    if not latest_assessment:
+        return {"assessment_id": None, "findings": []}
+
+    findings = db.query(CodeFinding).filter(CodeFinding.assessment_id == latest_assessment.id).all()
+    return {
+        "assessment_id": latest_assessment.id,
+        "scoring_version": latest_assessment.scoring_version,
+        "technical_debt_ratio": latest_assessment.technical_debt_ratio,
+        "estimated_remediation_hours": latest_assessment.estimated_remediation_hours,
+        "lines_of_code": latest_assessment.lines_of_code,
+        "findings_count": len(findings),
+        "findings": [
+            {
+                "id": f.id,
+                "file_path": f.file_path,
+                "line_start": f.line_start,
+                "line_end": f.line_end,
+                "rule_id": f.rule_id,
+                "category": f.category,
+                "severity": f.severity,
+                "title": f.title,
+                "explanation": f.explanation,
+                "technical_evidence": f.technical_evidence,
+                "recommended_remediation": f.recommended_remediation,
+                "estimated_remediation_hours": f.estimated_remediation_hours
+            }
+            for f in findings
+        ]
+    }
+
+@router.get("/{finding_id}")
+def get_code_finding_detail(
+    finding_id: str,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    finding = db.query(CodeFinding).join(Project, CodeFinding.project_id == Project.id).filter(
+        CodeFinding.id == finding_id,
+        Project.org_id == current_user.org_id
+    ).first()
+
+    if not finding:
+        raise HTTPException(status_code=404, detail="Finding not found")
+
+    return {
+        "id": finding.id,
+        "assessment_id": finding.assessment_id,
+        "project_id": finding.project_id,
+        "file_path": finding.file_path,
+        "line_start": finding.line_start,
+        "line_end": finding.line_end,
+        "rule_id": finding.rule_id,
+        "category": finding.category,
+        "severity": finding.severity,
+        "confidence": finding.confidence,
+        "title": finding.title,
+        "explanation": finding.explanation,
+        "technical_evidence": finding.technical_evidence,
+        "why_it_matters": finding.why_it_matters,
+        "recommended_remediation": finding.recommended_remediation,
+        "estimated_remediation_hours": finding.estimated_remediation_hours,
+        "is_auto_verifiable": finding.is_auto_verifiable,
+        "created_at": finding.created_at.isoformat()
+    }
+
