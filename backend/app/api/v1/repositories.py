@@ -14,10 +14,12 @@ from app.services.repository_ingestion_service import (
 from app.services.parsers.dependency_parser import DependencyParser
 from app.services.github_app_service import GitHubAppService, GitHubAppError
 from app.services.gitlab_service import GitLabService, GitLabIntegrationError
+from app.services.bitbucket_service import BitbucketService, BitbucketIntegrationError
 
 router = APIRouter(prefix="/repositories", tags=["Repositories"])
 github_app = GitHubAppService()
 gitlab_service = GitLabService()
+bitbucket_service = BitbucketService()
 
 class ConnectRepoRequest(BaseModel):
     project_id: str
@@ -166,6 +168,85 @@ def list_gitlab_project_branches(
         branches = gitlab_service.list_project_branches(gitlab_project_id, token)
         return {"branches": branches}
     except GitLabIntegrationError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+class BitbucketAuthUrlRequest(BaseModel):
+    redirect_uri: str
+    state: Optional[str] = "techdebt-bitbucket-auth"
+
+class BitbucketTokenExchangeRequest(BaseModel):
+    code: str
+    redirect_uri: str
+
+@router.get("/bitbucket/config")
+def get_bitbucket_config(current_user: User = Depends(get_current_user)):
+    """Retrieve public configuration status of Bitbucket integration."""
+    return {
+        "is_configured": bitbucket_service.is_configured
+    }
+
+@router.post("/bitbucket/authorize-url")
+def get_bitbucket_authorize_url(
+    payload: BitbucketAuthUrlRequest,
+    current_user: User = Depends(get_current_user)
+):
+    """Generate OAuth authorization URL for Bitbucket connection."""
+    if not bitbucket_service.is_configured:
+        raise HTTPException(
+            status_code=503,
+            detail="Bitbucket integration is not configured. Missing BITBUCKET_CLIENT_ID or BITBUCKET_CLIENT_SECRET."
+        )
+    try:
+        url = bitbucket_service.get_authorization_url(payload.redirect_uri, payload.state or "techdebt-bitbucket-auth")
+        return {"authorization_url": url}
+    except BitbucketIntegrationError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+@router.post("/bitbucket/token")
+def exchange_bitbucket_token(
+    payload: BitbucketTokenExchangeRequest,
+    current_user: User = Depends(get_current_user)
+):
+    """Exchange authorization code for Bitbucket OAuth token."""
+    if not bitbucket_service.is_configured:
+        raise HTTPException(
+            status_code=503,
+            detail="Bitbucket integration is not configured."
+        )
+    try:
+        data = bitbucket_service.exchange_code_for_token(payload.code, payload.redirect_uri)
+        return data
+    except BitbucketIntegrationError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+@router.get("/bitbucket/repositories")
+def list_bitbucket_repositories(
+    token: Optional[str] = None,
+    current_user: User = Depends(get_current_user)
+):
+    """List repositories accessible to the authenticated Bitbucket user."""
+    if not token or not token.strip():
+        raise HTTPException(status_code=400, detail="Bitbucket access token is required")
+    try:
+        repos = bitbucket_service.list_repositories(token)
+        return {"repositories": repos}
+    except BitbucketIntegrationError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+@router.get("/bitbucket/repositories/{workspace}/{repo_slug}/branches")
+def list_bitbucket_branches(
+    workspace: str,
+    repo_slug: str,
+    token: Optional[str] = None,
+    current_user: User = Depends(get_current_user)
+):
+    """List branches for a specific Bitbucket repository."""
+    if not token or not token.strip():
+        raise HTTPException(status_code=400, detail="Bitbucket access token is required")
+    try:
+        branches = bitbucket_service.list_repository_branches(workspace, repo_slug, token)
+        return {"branches": branches}
+    except BitbucketIntegrationError as e:
         raise HTTPException(status_code=400, detail=str(e))
 
 @router.get("/{project_id}")

@@ -21,8 +21,8 @@
 | **09** | `feat: implement project access control and collaboration` | **COMPLETE** | `backend/app/models/all_models.py`, `backend/app/schemas/schemas.py`, `backend/app/api/v1/projects.py`, `backend/tests/test_project_collaboration_and_archival.py` | Pytest (collab/archive, api) | PASS (8 passed) | `52b9929` |
 | **10** | `test: validate authentication authorization and multi-tenant security` | **COMPLETE** | `docs/V3_MILESTONES_1_AND_2_VERIFICATION.md` | Pytest (39 comprehensive security & auth tests) | PASS (39 passed) | `53ebd14` |
 | **11** | `feat: implement secure GitHub App integration` | **COMPLETE** | `backend/app/services/github_app_service.py`, `backend/app/api/v1/repositories.py`, `backend/tests/test_github_app_integration.py` | Pytest (test_github_app_integration) | PASS (4 passed) | `989ae34` |
-| **12** | `feat: implement GitLab repository integration` | **COMPLETE** | `backend/app/services/gitlab_service.py`, `backend/app/api/v1/repositories.py`, `backend/tests/test_gitlab_integration.py` | Pytest (test_gitlab_integration) | PASS (5 passed) | Pending |
-| **13** | `feat: implement additional repository providers and ZIP uploads` | Planned | - | - | - | - |
+| **12** | `feat: implement GitLab repository integration` | **COMPLETE** | `backend/app/services/gitlab_service.py`, `backend/app/api/v1/repositories.py`, `backend/tests/test_gitlab_integration.py` | Pytest (test_gitlab_integration) | PASS (5 passed) | `2033b75` |
+| **13** | `feat: implement additional repository providers and ZIP uploads` | **COMPLETE** | `backend/app/services/bitbucket_service.py`, `backend/app/services/repository_ingestion_service.py`, `backend/app/api/v1/repositories.py`, `backend/tests/test_repository_providers_and_zip.py` | Pytest (test_repository_providers_and_zip) | PASS (8 passed) | Pending |
 | **14** | `feat: implement secure asynchronous repository ingestion` | Planned | - | - | - | - |
 | **15** | `feat: implement repository webhooks and incremental synchronization` | Planned | - | - | - | - |
 | **16** | `feat: implement Python AST source analysis` | Planned | - | - | - | - |
@@ -194,5 +194,16 @@
 - **Tests Executed:** `pytest backend/tests/test_gitlab_integration.py`.
 - **Test Results:** 5 passed, 0 failed.
 - **Documentation Updated:** `docs/V3_50_COMMIT_PROGRESS.md`.
-- **Commit Hash:** Assigned upon commit.
+- **Commit Hash:** `2033b75`.
 - **Remaining Issues:** Proceed to Commit 13 (Additional repository providers and ZIP uploads).
+
+### COMMIT 13
+- **Title:** `feat: implement additional repository providers and ZIP uploads`
+- **Scope:** Bitbucket Cloud OAuth 2.0 and API integration, enhanced ZIP archive validation, Zip-Slip prevention, decompression bomb defense.
+- **Files Changed:** `backend/app/services/bitbucket_service.py`, `backend/app/services/repository_ingestion_service.py`, `backend/app/api/v1/repositories.py`, `backend/tests/test_repository_providers_and_zip.py`, `docs/V3_50_COMMIT_PROGRESS.md`.
+- **Implementation Summary:** Implemented `BitbucketService` with OAuth 2.0 authorization URL builder, HTTP Basic token exchange, repository discovery, and branch listing. Added Bitbucket endpoints in `repositories.py`. Hardened `RepositoryIngestionService` with `is_zipfile` validation, `BadZipFile` recovery, decompression bomb prevention, and Bitbucket archive extraction support. Added 8 unit tests covering Bitbucket service, API routes, Zip-Slip rejection, corrupted archive rejection, and valid archive unpacking.
+- **Tests Executed:** `pytest backend/tests/test_repository_providers_and_zip.py`.
+- **Test Results:** 8 passed, 0 failed.
+- **Documentation Updated:** `docs/V3_50_COMMIT_PROGRESS.md`.
+- **Commit Hash:** Assigned upon commit.
+- **Remaining Issues:** Proceed to Commit 14 (Implement secure asynchronous repository ingestion).

@@ -151,6 +151,9 @@ class RepositoryIngestionService:
             tmp_zip.write(zip_file_bytes)
 
         try:
+            if not zipfile.is_zipfile(tmp_zip_path):
+                raise ArchiveSecurityError("Uploaded file is not a valid ZIP archive or contains corrupted headers.")
+
             with zipfile.ZipFile(tmp_zip_path, "r") as zf:
                 infolist = zf.infolist()
                 if len(infolist) > cls.MAX_FILE_COUNT:
@@ -192,6 +195,8 @@ class RepositoryIngestionService:
                 "file_count": extracted_file_count,
                 "uncompressed_bytes": total_extracted_size
             }
+        except zipfile.BadZipFile as e:
+            raise ArchiveSecurityError(f"Corrupted or invalid ZIP archive: {str(e)}")
         finally:
             if os.path.exists(tmp_zip_path):
                 os.remove(tmp_zip_path)
@@ -287,6 +292,11 @@ class RepositoryIngestionService:
             if len(path_parts) >= 2:
                 project_path = "%2F".join(path_parts).replace(".git", "")
                 download_url = f"https://gitlab.com/api/v4/projects/{project_path}/repository/archive.zip?sha={branch}"
+        elif "bitbucket.org" in parsed.netloc:
+            path_parts = parsed.path.strip("/").split("/")
+            if len(path_parts) >= 2:
+                workspace, repo_slug = path_parts[0], path_parts[1].replace(".git", "")
+                download_url = f"https://bitbucket.org/{workspace}/{repo_slug}/get/{branch}.zip"
         else:
             # Generic Git archive URL or direct download
             download_url = f"{repo_url.rstrip('/')}/archive/{branch}.zip"
