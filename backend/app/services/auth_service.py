@@ -99,9 +99,76 @@ def get_current_user(token: str = Depends(oauth2_scheme), db: Session = Depends(
         raise credentials_exception
     return user
 
+class UserRole:
+    SUPER_ADMIN = "SuperAdmin"
+    OWNER = "Owner"
+    ADMINISTRATOR = "Administrator"
+    ENGINEERING_MANAGER = "Engineering Manager"
+    DEVELOPER = "Developer"
+    VIEWER = "Viewer"
+
+    ALL_ROLES = [
+        SUPER_ADMIN,
+        OWNER,
+        ADMINISTRATOR,
+        ENGINEERING_MANAGER,
+        DEVELOPER,
+        VIEWER
+    ]
+
+ROLE_PERMISSIONS = {
+    UserRole.SUPER_ADMIN: {
+        "system:manage", "org:manage", "org:delete", "billing:manage",
+        "teams:manage", "projects:create", "projects:edit", "projects:delete",
+        "assessments:run", "repositories:manage", "risks:manage", "reports:export", "data:read"
+    },
+    UserRole.OWNER: {
+        "org:manage", "org:delete", "billing:manage", "teams:manage",
+        "projects:create", "projects:edit", "projects:delete",
+        "assessments:run", "repositories:manage", "risks:manage", "reports:export", "data:read"
+    },
+    UserRole.ADMINISTRATOR: {
+        "org:manage", "teams:manage",
+        "projects:create", "projects:edit", "projects:delete",
+        "assessments:run", "repositories:manage", "risks:manage", "reports:export", "data:read"
+    },
+    UserRole.ENGINEERING_MANAGER: {
+        "teams:manage", "projects:create", "projects:edit",
+        "assessments:run", "repositories:manage", "risks:manage", "reports:export", "data:read"
+    },
+    UserRole.DEVELOPER: {
+        "projects:create", "assessments:run", "repositories:manage", "risks:manage", "reports:export", "data:read"
+    },
+    UserRole.VIEWER: {
+        "reports:export", "data:read"
+    }
+}
+
+def has_permission(role: str, permission: str) -> bool:
+    if role == UserRole.SUPER_ADMIN:
+        return True
+    return permission in ROLE_PERMISSIONS.get(role, set())
+
+def require_permission(permission: str):
+    """Enforce fine-grained functional permission."""
+    def perm_checker(current_user: User = Depends(get_current_user)) -> User:
+        if not has_permission(current_user.role, permission):
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail=f"Operation not permitted. Missing required permission: '{permission}'"
+            )
+        return current_user
+    return perm_checker
+
 def require_roles(allowed_roles: List[str]):
-    """Strict RBAC verification."""
+    """Strict RBAC verification with role inheritance."""
     def role_checker(current_user: User = Depends(get_current_user)) -> User:
+        # SuperAdmin inherits all roles
+        if current_user.role == UserRole.SUPER_ADMIN:
+            return current_user
+        # Owner inherits Administrator and Engineering Manager roles
+        if current_user.role == UserRole.OWNER and any(r in allowed_roles for r in [UserRole.ADMINISTRATOR, UserRole.ENGINEERING_MANAGER]):
+            return current_user
         if current_user.role not in allowed_roles:
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,

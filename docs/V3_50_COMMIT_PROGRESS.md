@@ -14,8 +14,8 @@
 | **02** | `fix: resolve critical password reset and account security vulnerabilities` | **COMPLETE** | `backend/app/api/v1/auth.py`, `backend/app/services/rate_limiter.py`, `backend/tests/test_password_reset.py` | Pytest (test_password_reset, test_api) | PASS (10 passed) | `a94e8c2` |
 | **03** | `feat: implement email verification and secure account lifecycle` | **COMPLETE** | `backend/app/api/v1/auth.py`, `backend/app/schemas/schemas.py`, `backend/tests/test_email_verification_and_lifecycle.py` | Pytest (lifecycle, reset, api) | PASS (12 passed) | `6fb93b6` |
 | **04** | `fix: secure credentials sessions and sensitive configuration` | **COMPLETE** | `backend/app/services/crypto_service.py`, `backend/tests/test_crypto_security.py` | Pytest (crypto, core) | PASS (15 passed) | `77d0eac` |
-| **05** | `fix: implement strict organization authorization and tenant isolation` | **COMPLETE** | `backend/app/api/v1/dashboard.py`, `backend/tests/test_tenant_authorization_matrix.py` | Pytest (20 security tests) | PASS (20 passed) | Pending |
-| **06** | `feat: complete role-based access control` | Planned | - | - | - | - |
+| **05** | `fix: implement strict organization authorization and tenant isolation` | **COMPLETE** | `backend/app/api/v1/dashboard.py`, `backend/tests/test_tenant_authorization_matrix.py` | Pytest (20 security tests) | PASS (20 passed) | `41562a4` |
+| **06** | `feat: complete role-based access control` | **COMPLETE** | `backend/app/services/auth_service.py`, `backend/tests/test_rbac_matrix.py` | Pytest (test_rbac_matrix) | PASS (7 passed) | Pending |
 | **07** | `feat: complete organization and workspace management` | Planned | - | - | - | - |
 | **08** | `feat: implement team invitations and member management` | Planned | - | - | - | - |
 | **09** | `feat: implement project access control and collaboration` | Planned | - | - | - | - |
@@ -117,5 +117,16 @@
 - **Tests Executed:** 20 security tests across test_password_reset, test_email_verification_and_lifecycle, test_crypto_security, test_security_multitenancy, and test_tenant_authorization_matrix.
 - **Test Results:** 20 passed, 0 failed.
 - **Documentation Updated:** `docs/V3_50_COMMIT_PROGRESS.md`.
-- **Commit Hash:** Assigned upon commit.
+- **Commit Hash:** `41562a4`.
 - **Remaining Issues:** Milestone 1 complete. Proceed to Milestone 2 (Commit 06: Complete role-based access control).
+
+### COMMIT 06
+- **Title:** `feat: complete role-based access control`
+- **Scope:** 6-tier role definition (SuperAdmin, Owner, Administrator, Engineering Manager, Developer, Viewer), permission matrix, inheritance in `require_roles`, functional permission verification.
+- **Files Changed:** `backend/app/services/auth_service.py`, `backend/tests/test_rbac_matrix.py`, `docs/V3_50_COMMIT_PROGRESS.md`.
+- **Implementation Summary:** Implemented formal `UserRole` taxonomy, permission map `ROLE_PERMISSIONS`, `has_permission`, `require_permission` dependency, and hierarchical role inheritance in `require_roles`. Added 7 dedicated RBAC tests.
+- **Tests Executed:** `pytest tests/test_rbac_matrix.py`.
+- **Test Results:** 7 passed, 0 failed.
+- **Documentation Updated:** `docs/V3_50_COMMIT_PROGRESS.md`.
+- **Commit Hash:** Assigned upon commit.
+- **Remaining Issues:** Proceed to Commit 07 (Organization and workspace management).
