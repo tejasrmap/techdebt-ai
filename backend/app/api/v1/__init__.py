@@ -14,6 +14,7 @@ from app.api.v1.billing import router as billing_router
 from app.api.v1.teams import router as teams_router
 from app.api.v1.code_findings import router as code_findings_router
 from app.api.v1.notifications import router as notifications_router
+from app.api.v1.organizations import router as organizations_router
 
 api_v1_router = APIRouter()
 api_v1_router.include_router(auth_router)
@@ -31,5 +32,6 @@ api_v1_router.include_router(billing_router)
 api_v1_router.include_router(teams_router)
 api_v1_router.include_router(code_findings_router)
 api_v1_router.include_router(notifications_router)
+api_v1_router.include_router(organizations_router)
 
 

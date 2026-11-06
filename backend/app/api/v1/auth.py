@@ -202,15 +202,15 @@ def create_invitation(
 
     # Privilege Escalation Guard
     if current_user.role == "Engineering Manager":
-        if req.role in ["Administrator", "Engineering Manager"]:
+        if req.role in ["Administrator", "Engineering Manager", "Owner"]:
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
                 detail="Privilege escalation prohibited: Engineering Managers are only permitted to invite Developer and Viewer accounts."
             )
-    elif current_user.role != "Administrator":
+    elif current_user.role not in ["SuperAdmin", "Owner", "Administrator"]:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
-            detail="Only Administrators and Engineering Managers can issue invitations."
+            detail="Only Owners, Administrators and Engineering Managers can issue invitations."
         )
 
     # Check if user already exists
