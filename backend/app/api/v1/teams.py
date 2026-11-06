@@ -4,7 +4,7 @@ from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
 from app.database import get_db
-from app.models.all_models import User, Team, TeamMember, Project, ProjectTeamPermission
+from app.models.all_models import User, Team, TeamMember, Project, ProjectTeamPermission, AuditLog
 from app.services.auth_service import get_current_user, require_roles
 from app.services.billing_service import BillingService
 
@@ -205,4 +205,37 @@ def assign_project_to_team(
 
     db.commit()
     return {"message": f"Assigned project {project.name} to team {team.name} with {req.permission_level} permission"}
+
+@router.get("/{team_id}/activity")
+def get_team_activity(
+    team_id: str,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """Retrieve activity audit trail for team memberships and project assignments."""
+    team = db.query(Team).filter(Team.id == team_id, Team.org_id == current_user.org_id).first()
+    if not team:
+        raise HTTPException(status_code=404, detail="Team not found")
+
+    logs = (
+        db.query(AuditLog)
+        .filter(
+            AuditLog.org_id == current_user.org_id,
+            (AuditLog.resource_id == team_id) | (AuditLog.action.like("team.%"))
+        )
+        .order_by(AuditLog.created_at.desc())
+        .limit(50)
+        .all()
+    )
+
+    return [
+        {
+            "id": l.id,
+            "action": l.action,
+            "user_id": l.user_id,
+            "details": l.details,
+            "created_at": l.created_at.isoformat() if l.created_at else None
+        }
+        for l in logs
+    ]
 

@@ -16,8 +16,8 @@
 | **04** | `fix: secure credentials sessions and sensitive configuration` | **COMPLETE** | `backend/app/services/crypto_service.py`, `backend/tests/test_crypto_security.py` | Pytest (crypto, core) | PASS (15 passed) | `77d0eac` |
 | **05** | `fix: implement strict organization authorization and tenant isolation` | **COMPLETE** | `backend/app/api/v1/dashboard.py`, `backend/tests/test_tenant_authorization_matrix.py` | Pytest (20 security tests) | PASS (20 passed) | `41562a4` |
 | **06** | `feat: complete role-based access control` | **COMPLETE** | `backend/app/services/auth_service.py`, `backend/tests/test_rbac_matrix.py` | Pytest (test_rbac_matrix) | PASS (7 passed) | `4fa3705` |
-| **07** | `feat: complete organization and workspace management` | **COMPLETE** | `backend/app/api/v1/organizations.py`, `backend/app/api/v1/__init__.py`, `backend/app/api/v1/auth.py`, `backend/tests/test_organization_management.py` | Pytest (test_organization_management) | PASS (1 passed) | Pending |
-| **08** | `feat: implement team invitations and member management` | Planned | - | - | - | - |
+| **07** | `feat: complete organization and workspace management` | **COMPLETE** | `backend/app/api/v1/organizations.py`, `backend/app/api/v1/__init__.py`, `backend/app/api/v1/auth.py`, `backend/tests/test_organization_management.py` | Pytest (test_organization_management) | PASS (1 passed) | `66d3943` |
+| **08** | `feat: implement team invitations and member management` | **COMPLETE** | `backend/app/api/v1/organizations.py`, `backend/app/api/v1/teams.py`, `backend/tests/test_team_and_member_management.py` | Pytest (team/member tests) | PASS (3 passed) | Pending |
 | **09** | `feat: implement project access control and collaboration` | Planned | - | - | - | - |
 | **10** | `test: validate authentication authorization and multi-tenant security` | Planned | - | - | - | - |
 | **11** | `feat: implement secure GitHub App integration` | Planned | - | - | - | - |
@@ -139,5 +139,16 @@
 - **Tests Executed:** `pytest tests/test_organization_management.py`.
 - **Test Results:** 1 passed, 0 failed.
 - **Documentation Updated:** `docs/V3_50_COMMIT_PROGRESS.md`.
-- **Commit Hash:** Assigned upon commit.
+- **Commit Hash:** `66d3943`.
 - **Remaining Issues:** Proceed to Commit 08 (Team invitations and member management).
+
+### COMMIT 08
+- **Title:** `feat: implement team invitations and member management`
+- **Scope:** Organization member roster, role updates with privilege escalation prevention, member removal, invitation revocation and expiration, team activity logging.
+- **Files Changed:** `backend/app/api/v1/organizations.py`, `backend/app/api/v1/teams.py`, `backend/tests/test_team_and_member_management.py`, `docs/V3_50_COMMIT_PROGRESS.md`.
+- **Implementation Summary:** Implemented endpoints for listing members, promoting/demoting member roles with guardrails protecting Owners, and removing members with team membership cleanup. Added team audit history inspection endpoint `GET /teams/{team_id}/activity`. Added 3 unit tests verifying invitation expiration, revocation, acceptance, and privilege escalation guards.
+- **Tests Executed:** `pytest tests/test_team_and_member_management.py`.
+- **Test Results:** 3 passed, 0 failed.
+- **Documentation Updated:** `docs/V3_50_COMMIT_PROGRESS.md`.
+- **Commit Hash:** Assigned upon commit.
+- **Remaining Issues:** Proceed to Commit 09 (Project access control and collaboration).

@@ -6,7 +6,7 @@ from sqlalchemy.orm import Session
 
 from app.database import get_db
 from app.models.all_models import (
-    Organization, User, Project, Team, AuditLog, Assessment,
+    Organization, User, Project, Team, TeamMember, AuditLog, Assessment,
     RiskFinding, ProjectTechnology, Technology
 )
 from app.services.auth_service import get_current_user, require_roles, UserRole
@@ -23,6 +23,9 @@ class OwnershipTransferRequest(BaseModel):
 class RetentionPolicyRequest(BaseModel):
     retention_days: int = 90
     purge_now: bool = False
+
+class MemberRoleUpdateRequest(BaseModel):
+    role: str
 
 @router.get("/current")
 def get_current_organization(
@@ -305,3 +308,105 @@ def configure_data_retention(
         "retention_days": req.retention_days,
         "purged_audit_records": purged_audit_count
     }
+
+@router.get("/current/members")
+def list_organization_members(
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """List all active and invited members of the organization."""
+    members = db.query(User).filter(User.org_id == current_user.org_id).order_by(User.created_at.asc()).all()
+    return [
+        {
+            "id": u.id,
+            "email": u.email,
+            "full_name": u.full_name,
+            "role": u.role,
+            "is_active": u.is_active,
+            "is_verified": u.is_verified,
+            "created_at": u.created_at.isoformat() if u.created_at else None
+        }
+        for u in members
+    ]
+
+@router.put("/current/members/{user_id}/role")
+def update_member_role(
+    user_id: str,
+    req: MemberRoleUpdateRequest,
+    current_user: User = Depends(require_roles([UserRole.SUPER_ADMIN, UserRole.OWNER, UserRole.ADMINISTRATOR])),
+    db: Session = Depends(get_db)
+):
+    """Update role of an organization member with privilege escalation safeguards."""
+    if req.role not in UserRole.ALL_ROLES:
+        raise HTTPException(status_code=400, detail=f"Invalid role. Allowed roles: {', '.join(UserRole.ALL_ROLES)}")
+
+    target_user = db.query(User).filter(User.id == user_id, User.org_id == current_user.org_id).first()
+    if not target_user:
+        raise HTTPException(status_code=404, detail="Member not found in organization")
+
+    # Protection against self-demotion/promotion if Owner
+    if target_user.id == current_user.id and current_user.role == UserRole.OWNER and req.role != UserRole.OWNER:
+        raise HTTPException(status_code=400, detail="Organization owners must transfer ownership before changing their role")
+
+    # Privilege escalation guard: Administrators cannot promote anyone to Owner or Administrator
+    if current_user.role == UserRole.ADMINISTRATOR and req.role in [UserRole.OWNER, UserRole.SUPER_ADMIN]:
+        raise HTTPException(status_code=403, detail="Only Organization Owners can assign Owner or SuperAdmin roles")
+
+    # Administrators cannot modify an Owner
+    if target_user.role in [UserRole.OWNER, UserRole.SUPER_ADMIN] and current_user.role not in [UserRole.SUPER_ADMIN, UserRole.OWNER]:
+        raise HTTPException(status_code=403, detail="Only Owners can modify other Owner accounts")
+
+    old_role = target_user.role
+    target_user.role = req.role
+
+    audit = AuditLog(
+        user_id=current_user.id,
+        org_id=current_user.org_id,
+        action="organization.member_role_updated",
+        resource_type="user",
+        resource_id=target_user.id,
+        details={"user_email": target_user.email, "old_role": old_role, "new_role": req.role}
+    )
+    db.add(audit)
+    db.commit()
+
+    return {
+        "message": f"Updated role for {target_user.email} to {req.role}",
+        "user_id": target_user.id,
+        "new_role": target_user.role
+    }
+
+@router.delete("/current/members/{user_id}")
+def remove_organization_member(
+    user_id: str,
+    current_user: User = Depends(require_roles([UserRole.SUPER_ADMIN, UserRole.OWNER, UserRole.ADMINISTRATOR])),
+    db: Session = Depends(get_db)
+):
+    """Remove a member from the organization."""
+    if user_id == current_user.id:
+        raise HTTPException(status_code=400, detail="Cannot remove yourself from the organization")
+
+    target_user = db.query(User).filter(User.id == user_id, User.org_id == current_user.org_id).first()
+    if not target_user:
+        raise HTTPException(status_code=404, detail="Member not found in organization")
+
+    if target_user.role in [UserRole.OWNER, UserRole.SUPER_ADMIN] and current_user.role != UserRole.SUPER_ADMIN:
+        raise HTTPException(status_code=403, detail="Cannot remove the organization owner")
+
+    # Remove user memberships in teams
+    db.query(TeamMember).filter(TeamMember.user_id == user_id).delete(synchronize_session=False)
+
+    db.delete(target_user)
+
+    audit = AuditLog(
+        user_id=current_user.id,
+        org_id=current_user.org_id,
+        action="organization.member_removed",
+        resource_type="user",
+        resource_id=user_id,
+        details={"removed_email": target_user.email}
+    )
+    db.add(audit)
+    db.commit()
+
+    return {"message": f"Member {target_user.email} removed from organization"}
