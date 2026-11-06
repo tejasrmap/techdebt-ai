@@ -26,8 +26,8 @@
 | **14** | `feat: implement secure asynchronous repository ingestion` | **COMPLETE** | `backend/app/services/repository_ingestion_service.py`, `backend/app/api/v1/repositories.py`, `backend/tests/test_async_ingestion.py` | Pytest (test_async_ingestion) | PASS (4 passed) | `c002f45` |
 | **15** | `feat: implement repository webhooks and incremental synchronization` | **COMPLETE** | `backend/app/api/v1/repositories.py`, `backend/tests/test_repository_webhooks.py` | Pytest (test_repository_webhooks) | PASS (5 passed) | `ff1ec4c` |
 | **16** | `feat: implement Python AST source analysis` | **COMPLETE** | `backend/app/services/source_code_analyzer.py`, `backend/tests/test_python_ast_analysis.py` | Pytest (test_python_ast_analysis) | PASS (5 passed) | `60e0e28` |
-| **17** | `feat: implement JavaScript and TypeScript source analysis` | **COMPLETE** | `backend/app/services/source_code_analyzer.py`, `backend/tests/test_javascript_typescript_analysis.py` | Pytest (test_javascript_typescript_analysis) | PASS (4 passed) | Pending |
-| **18** | `feat: implement Java and PHP source analysis` | Planned | - | - | - | - |
+| **17** | `feat: implement JavaScript and TypeScript source analysis` | **COMPLETE** | `backend/app/services/source_code_analyzer.py`, `backend/tests/test_javascript_typescript_analysis.py` | Pytest (test_javascript_typescript_analysis) | PASS (4 passed) | `5d2229a` |
+| **18** | `feat: implement Java and PHP source analysis` | **COMPLETE** | `backend/app/services/source_code_analyzer.py`, `backend/tests/test_java_php_analysis.py` | Pytest (test_java_php_analysis) | PASS (3 passed) | Pending |
 | **19** | `feat: implement Go C sharp and C C++ analysis` | Planned | - | - | - | - |
 | **20** | `feat: implement unified source findings and quality engine` | Planned | - | - | - | - |
 | **21** | `feat: complete dependency manifest and lockfile parsing` | Planned | - | - | - | - |
@@ -249,5 +249,16 @@
 - **Tests Executed:** `pytest backend/tests/test_javascript_typescript_analysis.py`.
 - **Test Results:** 4 passed, 0 failed.
 - **Documentation Updated:** `docs/V3_50_COMMIT_PROGRESS.md`.
-- **Commit Hash:** Assigned upon commit.
+- **Commit Hash:** `5d2229a`.
 - **Remaining Issues:** Proceed to Commit 18 (Java and PHP source analysis).
+
+### COMMIT 18
+- **Title:** `feat: implement Java and PHP source analysis`
+- **Scope:** Static code intelligence for Java and PHP codebases. Java rules for empty catch blocks, generic exception throwing, SQL concatenation in JDBC, System.exit invocations, weak PRNG (java.util.Random), and deep nesting. PHP rules for short open tags, dangerous eval/create_function, insecure unserialize POP chains, unvalidated superglobals, and empty catches.
+- **Files Changed:** `backend/app/services/source_code_analyzer.py`, `backend/tests/test_java_php_analysis.py`, `docs/V3_50_COMMIT_PROGRESS.md`.
+- **Implementation Summary:** Added dedicated `_analyze_java` and `_analyze_php` analyzers to `SourceCodeAnalyzer`. Integrated them into file-level and repository-level analysis dispatchers. Implemented detection rules: `JAVA_EMPTY_CATCH_BLOCK`, `JAVA_GENERIC_EXCEPTION_THROWN`, `JAVA_SQL_INJECTION_CONCAT`, `JAVA_SYSTEM_EXIT`, `JAVA_INSECURE_RANDOM`, `JAVA_DEEP_NESTING`, `PHP_SHORT_OPEN_TAG`, `PHP_DANGEROUS_EVAL`, `PHP_INSECURE_UNSERIALIZE`, `PHP_RAW_SUPERGLOBAL_USAGE`, and `PHP_EMPTY_CATCH_BLOCK`. Added 3 unit tests.
+- **Tests Executed:** `pytest backend/tests/test_java_php_analysis.py`.
+- **Test Results:** 3 passed, 0 failed.
+- **Documentation Updated:** `docs/V3_50_COMMIT_PROGRESS.md`.
+- **Commit Hash:** Assigned upon commit.
+- **Remaining Issues:** Proceed to Commit 19 (Go C sharp and C C++ analysis).

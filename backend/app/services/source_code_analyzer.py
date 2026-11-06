@@ -120,6 +120,14 @@ class SourceCodeAnalyzer:
             comp, js_findings = self._analyze_javascript_typescript(file_path, content, lines, lang)
             complexity = max(complexity, comp)
             raw_findings.extend(js_findings)
+        elif lang == "java":
+            comp, java_findings = self._analyze_java(file_path, content, lines)
+            complexity = max(complexity, comp)
+            raw_findings.extend(java_findings)
+        elif lang == "php":
+            comp, php_findings = self._analyze_php(file_path, content, lines)
+            complexity = max(complexity, comp)
+            raw_findings.extend(php_findings)
         else:
             comp, gen_findings = self._analyze_generic_code(file_path, content, lines, lang)
             complexity = max(complexity, comp)
@@ -196,6 +204,14 @@ class SourceCodeAnalyzer:
                 comp, js_findings = self._analyze_javascript_typescript(rel_path, content, lines, lang)
                 complexity = max(complexity, comp)
                 file_findings.extend(js_findings)
+            elif lang == "java":
+                comp, java_findings = self._analyze_java(rel_path, content, lines)
+                complexity = max(complexity, comp)
+                file_findings.extend(java_findings)
+            elif lang == "php":
+                comp, php_findings = self._analyze_php(rel_path, content, lines)
+                complexity = max(complexity, comp)
+                file_findings.extend(php_findings)
             else:
                 comp, generic_findings = self._analyze_generic_code(rel_path, content, lines, lang)
                 complexity = max(complexity, comp)
@@ -828,6 +844,333 @@ class SourceCodeAnalyzer:
                 "is_auto_verifiable": True
             })
 
+        return complexity_score, findings
+
+    # =========================================================================
+    # Java Source Analysis
+    # =========================================================================
+
+    def _analyze_java(self, rel_path: str, content: str, lines: List[str]) -> Tuple[int, List[Dict[str, Any]]]:
+        findings: List[Dict[str, Any]] = []
+        loc = len(lines)
+
+        if loc > 600:
+            findings.append({
+                "file_path": rel_path,
+                "line_start": 1,
+                "line_end": loc,
+                "rule_id": "FILE_EXCESSIVE_LENGTH",
+                "category": "maintainability",
+                "severity": "Medium",
+                "confidence": "High",
+                "title": f"Excessive Java class length ({loc} lines)",
+                "explanation": f"Java class spans {loc} lines (recommended maximum: 600 lines).",
+                "technical_evidence": f"Total LOC: {loc}",
+                "why_it_matters": "Monolithic classes violate single-responsibility principle and complicate testing.",
+                "recommended_remediation": "Decompose into cohesive domain services or delegate to helper classes.",
+                "estimated_remediation_hours": round(loc / 250, 1),
+                "is_auto_verifiable": True
+            })
+
+        max_nesting = 0
+        current_nesting = 0
+        deep_nesting_line = 0
+        branch_count = 1
+        branch_keywords = {"if", "else if", "case", "for", "while", "catch", "&&", "||", "switch"}
+
+        for idx, line in enumerate(lines, start=1):
+            trimmed = line.strip()
+            if trimmed.startswith(("//", "/*", "*")):
+                continue
+
+            open_b = line.count("{") - line.count("}")
+            current_nesting = max(0, current_nesting + open_b)
+            if current_nesting > max_nesting:
+                max_nesting = current_nesting
+                deep_nesting_line = idx
+
+            for kw in branch_keywords:
+                if re.search(r'\b' + re.escape(kw) + r'\b', trimmed):
+                    branch_count += 1
+
+            # 1. Empty catch block
+            if re.search(r'catch\s*\([^)]+\)\s*\{\s*\}', trimmed):
+                findings.append({
+                    "file_path": rel_path,
+                    "line_start": idx,
+                    "line_end": idx,
+                    "rule_id": "JAVA_EMPTY_CATCH_BLOCK",
+                    "category": "reliability",
+                    "severity": "High",
+                    "confidence": "High",
+                    "title": "Empty catch block silently swallows Java exception",
+                    "explanation": "Catch block with an empty body conceals thrown exceptions and prevents proper error handling.",
+                    "technical_evidence": f"Line {idx}: {trimmed[:80]}",
+                    "why_it_matters": "Swallowed exceptions prevent error logging and leave applications in an inconsistent state.",
+                    "recommended_remediation": "Log the exception with a logger (e.g. SLF4J) or rethrow as a domain exception.",
+                    "estimated_remediation_hours": 0.5,
+                    "is_auto_verifiable": True
+                })
+
+            # 2. Generic Exception Thrown
+            if re.search(r'\bthrow\s+new\s+(?:Exception|Throwable)\s*\(', trimmed):
+                findings.append({
+                    "file_path": rel_path,
+                    "line_start": idx,
+                    "line_end": idx,
+                    "rule_id": "JAVA_GENERIC_EXCEPTION_THROWN",
+                    "category": "reliability",
+                    "severity": "Medium",
+                    "confidence": "High",
+                    "title": "Generic Exception or Throwable thrown directly",
+                    "explanation": "Throwing raw java.lang.Exception or java.lang.Throwable forces callers to catch overly broad exceptions.",
+                    "technical_evidence": f"Line {idx}: {trimmed[:80]}",
+                    "why_it_matters": "Generic exceptions break precise exception handling and obscure failure modes.",
+                    "recommended_remediation": "Throw specific checked or unchecked domain exceptions.",
+                    "estimated_remediation_hours": 0.5,
+                    "is_auto_verifiable": True
+                })
+
+            # 3. SQL string concatenation in JDBC queries
+            if (re.search(r'\b(?:executeQuery|executeUpdate|execute)\s*\(\s*".*"\s*\+', trimmed) or
+                re.search(r'".*\b(?:SELECT|INSERT|UPDATE|DELETE)\b.*"\s*\+', trimmed, re.IGNORECASE)):
+                findings.append({
+                    "file_path": rel_path,
+                    "line_start": idx,
+                    "line_end": idx,
+                    "rule_id": "JAVA_SQL_INJECTION_CONCAT",
+                    "category": "security",
+                    "severity": "Critical",
+                    "confidence": "High",
+                    "title": "SQL query built via string concatenation (SQL injection risk)",
+                    "explanation": "Concatenating strings into JDBC statements invites SQL injection attacks.",
+                    "technical_evidence": f"Line {idx}: {trimmed[:80]}",
+                    "why_it_matters": "Allows unauthorized users to manipulate queries and access or modify database records.",
+                    "recommended_remediation": "Use PreparedStatement with parameterized '?' placeholders.",
+                    "estimated_remediation_hours": 1.5,
+                    "is_auto_verifiable": True
+                })
+
+            # 4. System.exit call
+            if re.search(r'\bSystem\.exit\s*\(', trimmed):
+                findings.append({
+                    "file_path": rel_path,
+                    "line_start": idx,
+                    "line_end": idx,
+                    "rule_id": "JAVA_SYSTEM_EXIT",
+                    "category": "reliability",
+                    "severity": "High",
+                    "confidence": "High",
+                    "title": "Direct System.exit() invocation in application logic",
+                    "explanation": "Calling System.exit() terminates the entire JVM runtime immediately.",
+                    "technical_evidence": f"Line {idx}: {trimmed[:80]}",
+                    "why_it_matters": "Abruptly aborts server instances, servlet containers, and scheduled background workers.",
+                    "recommended_remediation": "Throw an application exception or let the container handle shutdown cleanly.",
+                    "estimated_remediation_hours": 0.5,
+                    "is_auto_verifiable": True
+                })
+
+            # 5. Insecure java.util.Random for security
+            if re.search(r'\bnew\s+Random\s*\(', trimmed):
+                findings.append({
+                    "file_path": rel_path,
+                    "line_start": idx,
+                    "line_end": idx,
+                    "rule_id": "JAVA_INSECURE_RANDOM",
+                    "category": "security",
+                    "severity": "Medium",
+                    "confidence": "Medium",
+                    "title": "Weak PRNG (java.util.Random) detected in application code",
+                    "explanation": "java.util.Random uses a linear congruential generator which is cryptographically predictable.",
+                    "technical_evidence": f"Line {idx}: {trimmed[:80]}",
+                    "why_it_matters": "Predictable random values allow attackers to predict sequential outputs and tokens.",
+                    "recommended_remediation": "Use java.security.SecureRandom for cryptographic and token generation.",
+                    "estimated_remediation_hours": 0.5,
+                    "is_auto_verifiable": True
+                })
+
+        if max_nesting >= 5:
+            findings.append({
+                "file_path": rel_path,
+                "line_start": deep_nesting_line,
+                "line_end": deep_nesting_line,
+                "rule_id": "JAVA_DEEP_NESTING",
+                "category": "complexity",
+                "severity": "High" if max_nesting >= 7 else "Medium",
+                "confidence": "High",
+                "title": f"Excessive block nesting depth ({max_nesting} levels)",
+                "explanation": f"Java method reaches nesting depth of {max_nesting} levels (threshold: 4 levels).",
+                "technical_evidence": f"Line {deep_nesting_line}: nesting level {max_nesting}",
+                "why_it_matters": "Excessive nesting obscures logic flow and makes branching paths hard to test.",
+                "recommended_remediation": "Extract inner loops or conditionals into dedicated helper methods.",
+                "estimated_remediation_hours": 1.0,
+                "is_auto_verifiable": True
+            })
+
+        complexity_score = max(1, min(50, branch_count // 2))
+        return complexity_score, findings
+
+    # =========================================================================
+    # PHP Source Analysis
+    # =========================================================================
+
+    def _analyze_php(self, rel_path: str, content: str, lines: List[str]) -> Tuple[int, List[Dict[str, Any]]]:
+        findings: List[Dict[str, Any]] = []
+        loc = len(lines)
+
+        if loc > 600:
+            findings.append({
+                "file_path": rel_path,
+                "line_start": 1,
+                "line_end": loc,
+                "rule_id": "FILE_EXCESSIVE_LENGTH",
+                "category": "maintainability",
+                "severity": "Medium",
+                "confidence": "High",
+                "title": f"Excessive PHP script length ({loc} lines)",
+                "explanation": f"PHP script spans {loc} lines (recommended maximum: 600 lines).",
+                "technical_evidence": f"Total LOC: {loc}",
+                "why_it_matters": "Monolithic PHP scripts result in poor maintainability and spaghetti code.",
+                "recommended_remediation": "Adopt MVC structure or split into cohesive PSR-4 classes.",
+                "estimated_remediation_hours": round(loc / 250, 1),
+                "is_auto_verifiable": True
+            })
+
+        max_nesting = 0
+        current_nesting = 0
+        deep_nesting_line = 0
+        branch_count = 1
+        branch_keywords = {"if", "elseif", "case", "for", "foreach", "while", "catch", "&&", "||", "switch"}
+
+        for idx, line in enumerate(lines, start=1):
+            trimmed = line.strip()
+            if trimmed.startswith(("//", "#", "/*", "*")):
+                continue
+
+            open_b = line.count("{") - line.count("}")
+            current_nesting = max(0, current_nesting + open_b)
+            if current_nesting > max_nesting:
+                max_nesting = current_nesting
+                deep_nesting_line = idx
+
+            for kw in branch_keywords:
+                if re.search(r'\b' + re.escape(kw) + r'\b', trimmed):
+                    branch_count += 1
+
+            # 1. Short open tags
+            if trimmed.startswith("<?") and not trimmed.startswith("<?php") and not trimmed.startswith("<?="):
+                findings.append({
+                    "file_path": rel_path,
+                    "line_start": idx,
+                    "line_end": idx,
+                    "rule_id": "PHP_SHORT_OPEN_TAG",
+                    "category": "reliability",
+                    "severity": "Medium",
+                    "confidence": "High",
+                    "title": "PHP short open tag ('<?') used",
+                    "explanation": "Short open tags depend on server short_open_tag ini directive and fail on modern environments.",
+                    "technical_evidence": f"Line {idx}: {trimmed[:80]}",
+                    "why_it_matters": "Disabling short_open_tag in php.ini causes source code to be rendered in plaintext to users.",
+                    "recommended_remediation": "Always use full '<?php' tags.",
+                    "estimated_remediation_hours": 0.2,
+                    "is_auto_verifiable": True
+                })
+
+            # 2. Dangerous eval / create_function
+            if re.search(r'\b(?:eval|create_function)\s*\(', trimmed):
+                findings.append({
+                    "file_path": rel_path,
+                    "line_start": idx,
+                    "line_end": idx,
+                    "rule_id": "PHP_DANGEROUS_EVAL",
+                    "category": "security",
+                    "severity": "Critical",
+                    "confidence": "High",
+                    "title": "Dynamic code execution via eval() or create_function()",
+                    "explanation": "eval() and deprecated create_function() execute dynamic PHP code at runtime.",
+                    "technical_evidence": f"Line {idx}: {trimmed[:80]}",
+                    "why_it_matters": "Allows remote attackers to execute arbitrary server commands and take over the system.",
+                    "recommended_remediation": "Refactor away from dynamic code execution to anonymous functions or closures.",
+                    "estimated_remediation_hours": 1.5,
+                    "is_auto_verifiable": True
+                })
+
+            # 3. Insecure unserialize
+            if re.search(r'\bunserialize\s*\(', trimmed) and "allowed_classes" not in trimmed:
+                findings.append({
+                    "file_path": rel_path,
+                    "line_start": idx,
+                    "line_end": idx,
+                    "rule_id": "PHP_INSECURE_UNSERIALIZE",
+                    "category": "security",
+                    "severity": "Critical",
+                    "confidence": "High",
+                    "title": "Insecure PHP object deserialization via unserialize()",
+                    "explanation": "unserialize() on untrusted user input triggers magic methods (__destruct, __wakeup) enabling POP chains.",
+                    "technical_evidence": f"Line {idx}: {trimmed[:80]}",
+                    "why_it_matters": "PHP Object Injection can lead to arbitrary code execution, file writes, and SQL injection.",
+                    "recommended_remediation": "Use json_decode() or specify ['allowed_classes' => false].",
+                    "estimated_remediation_hours": 1.0,
+                    "is_auto_verifiable": True
+                })
+
+            # 4. Raw superglobals in query/output
+            if re.search(r'\$_(?:GET|POST|REQUEST)\[', trimmed) and any(w in trimmed.lower() for w in ["query", "execute", "echo ", "print ", "where "]):
+                findings.append({
+                    "file_path": rel_path,
+                    "line_start": idx,
+                    "line_end": idx,
+                    "rule_id": "PHP_RAW_SUPERGLOBAL_USAGE",
+                    "category": "security",
+                    "severity": "High",
+                    "confidence": "Medium",
+                    "title": "Direct unvalidated superglobal ($_GET/$_POST) in query or output",
+                    "explanation": "Accessing $_GET, $_POST, or $_REQUEST directly in query or output statements risks XSS and SQLi.",
+                    "technical_evidence": f"Line {idx}: {trimmed[:80]}",
+                    "why_it_matters": "Unfiltered input from superglobals is a primary vector for injection vulnerabilities.",
+                    "recommended_remediation": "Sanitize with filter_input() or use parameterized PDO statements and htmlspecialchars().",
+                    "estimated_remediation_hours": 1.0,
+                    "is_auto_verifiable": True
+                })
+
+            # 5. Empty catch block
+            if re.search(r'catch\s*\([^)]+\)\s*\{\s*\}', trimmed):
+                findings.append({
+                    "file_path": rel_path,
+                    "line_start": idx,
+                    "line_end": idx,
+                    "rule_id": "PHP_EMPTY_CATCH_BLOCK",
+                    "category": "reliability",
+                    "severity": "Medium",
+                    "confidence": "High",
+                    "title": "Silent empty catch block swallows PHP exception",
+                    "explanation": "Catch block with an empty body conceals thrown exceptions.",
+                    "technical_evidence": f"Line {idx}: {trimmed[:80]}",
+                    "why_it_matters": "Swallowed exceptions leave the system in an unknown state and conceal errors.",
+                    "recommended_remediation": "Log the error using error_log() or Monolog.",
+                    "estimated_remediation_hours": 0.5,
+                    "is_auto_verifiable": True
+                })
+
+        if max_nesting >= 5:
+            findings.append({
+                "file_path": rel_path,
+                "line_start": deep_nesting_line,
+                "line_end": deep_nesting_line,
+                "rule_id": "PHP_DEEP_NESTING",
+                "category": "complexity",
+                "severity": "High" if max_nesting >= 7 else "Medium",
+                "confidence": "High",
+                "title": f"Excessive block nesting depth ({max_nesting} levels)",
+                "explanation": f"PHP block reaches nesting depth of {max_nesting} levels (threshold: 4 levels).",
+                "technical_evidence": f"Line {deep_nesting_line}: nesting level {max_nesting}",
+                "why_it_matters": "Deep nesting makes PHP code difficult to follow and maintain.",
+                "recommended_remediation": "Apply early return statements or extract logic into helper methods.",
+                "estimated_remediation_hours": 1.0,
+                "is_auto_verifiable": True
+            })
+
+        complexity_score = max(1, min(50, branch_count // 2))
         return complexity_score, findings
 
     # =========================================================================
