@@ -480,8 +480,19 @@
 - **Tests Executed:** `pytest backend/tests/test_report_exports.py`.
 - **Test Results:** 3 passed, 0 failed.
 - **Documentation Updated:** `docs/V3_50_COMMIT_PROGRESS.md`.
-- **Commit Hash:** `6f44448`.
+- **Commit Hash:** `7fb3818`.
 - **Remaining Issues:** Proceed to Commit 39 (Implement email and in-app notifications).
+
+### COMMIT 39
+- **Title:** `feat: implement email and in-app notifications`
+- **Scope:** Real-time in-app activity feeds, notification read tracking, unread counters, notification preferences management, multi-channel email dispatching with sandbox and SMTP delivery, and automatic trigger handlers for completed assessments and critical risk alerts.
+- **Files Changed:** `backend/app/services/notification_service.py`, `backend/app/api/v1/notifications.py`, `backend/tests/test_notifications_and_alerts.py`, `docs/V3_50_COMMIT_PROGRESS.md`.
+- **Implementation Summary:** Implemented `NotificationService` supporting in-app notifications, unread count caching, single and bulk read operations, and user preferences (`NotificationPreference`). Built `NotificationService.dispatch_email` with fallback sandbox buffer and SMTP delivery with GT InnoX LLP headers. Implemented automatic trigger dispatchers `send_assessment_completed_notification` and `send_critical_risk_alert`. Added API endpoints `GET /api/v1/notifications/unread-count`, `POST /api/v1/notifications/read-all`, `GET /api/v1/notifications/preferences`, `PUT /api/v1/notifications/preferences`, and `POST /api/v1/notifications/test-alert`. Added 3 automated test suites covering notification lifecycle, preferences and email dispatch, and cross-tenant security.
+- **Tests Executed:** `pytest backend/tests/test_notifications_and_alerts.py`.
+- **Test Results:** 3 passed, 0 failed.
+- **Documentation Updated:** `docs/V3_50_COMMIT_PROGRESS.md`.
+- **Commit Hash:** `7331a12`.
+- **Remaining Issues:** Proceed to Commit 40 (Complete responsive UI and accessibility).
 
 
 
