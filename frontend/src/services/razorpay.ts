@@ -58,3 +58,4 @@ export function loadRazorpayCheckoutScript(): Promise<boolean> {
 
   return scriptPromise;
 }
+
