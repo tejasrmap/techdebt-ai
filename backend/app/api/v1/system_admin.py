@@ -31,9 +31,9 @@ def clear_system_cache(
 
 @router.post("/disaster-recovery/backup")
 def create_backup_snapshot(
-    current_user: User = Depends(require_roles(["SuperAdmin", "Owner"]))
+    current_user: User = Depends(require_roles(["SuperAdmin"]))
 ):
-    """Trigger an atomic point-in-time database backup snapshot."""
+    """Trigger an atomic point-in-time database backup snapshot (Platform SuperAdmin only)."""
     manifest = DisasterRecoveryService.create_backup()
     return {
         "message": "Point-in-time database backup created successfully",
@@ -51,9 +51,9 @@ def list_backup_snapshots(
 @router.post("/disaster-recovery/restore")
 def restore_backup_snapshot(
     req: RestoreRequest,
-    current_user: User = Depends(require_roles(["SuperAdmin", "Owner"]))
+    current_user: User = Depends(require_roles(["SuperAdmin"]))
 ):
-    """Restore database from point-in-time snapshot with integrity validation."""
+    """Restore database from point-in-time snapshot with integrity validation (Platform SuperAdmin only)."""
     try:
         success = DisasterRecoveryService.restore_backup(req.backup_id)
         return {"message": f"Database restored successfully from backup {req.backup_id}", "restored": success}

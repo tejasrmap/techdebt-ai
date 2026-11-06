@@ -43,6 +43,13 @@ def test_invitation_flow_and_membership():
     }).json()
     token = reg["access_token"]
     headers = {"Authorization": f"Bearer {token}"}
+    from app.database import SessionLocal
+    from app.services.billing_service import BillingService
+    _db = SessionLocal()
+    try:
+        BillingService.change_subscription_plan(_db, reg["user"]["org_id"], "starter")
+    finally:
+        _db.close()
 
     # Admin creates invitation for Developer
     invite_resp = client.post("/api/v1/auth/invitations", headers=headers, json={
@@ -124,6 +131,13 @@ def test_rbac_restrictions():
     }).json()
     admin_token = reg["access_token"]
     admin_headers = {"Authorization": f"Bearer {admin_token}"}
+    from app.database import SessionLocal
+    from app.services.billing_service import BillingService
+    _db = SessionLocal()
+    try:
+        BillingService.change_subscription_plan(_db, reg["user"]["org_id"], "starter")
+    finally:
+        _db.close()
 
     # Invite Developer
     invite = client.post("/api/v1/auth/invitations", headers=admin_headers, json={
@@ -164,6 +178,13 @@ def test_token_revocation_on_logout():
     }).json()
     token = reg["access_token"]
     headers = {"Authorization": f"Bearer {token}"}
+    from app.database import SessionLocal
+    from app.services.billing_service import BillingService
+    _db = SessionLocal()
+    try:
+        BillingService.change_subscription_plan(_db, reg["user"]["org_id"], "starter")
+    finally:
+        _db.close()
 
     # Verify authenticated call succeeds
     me_resp = client.get("/api/v1/auth/me", headers=headers)
@@ -189,6 +210,13 @@ def test_file_upload_validation():
     }).json()
     token = reg["access_token"]
     headers = {"Authorization": f"Bearer {token}"}
+    from app.database import SessionLocal
+    from app.services.billing_service import BillingService
+    _db = SessionLocal()
+    try:
+        BillingService.change_subscription_plan(_db, reg["user"]["org_id"], "starter")
+    finally:
+        _db.close()
 
     # Create project in Alpha
     p = client.post("/api/v1/projects", headers=headers, json={"name": "Alpha Upload Test"}).json()
@@ -233,6 +261,13 @@ def test_privilege_escalation_prevention():
         "organization_name": f"Privilege Org {uid}"
     }).json()
     admin_headers = {"Authorization": f"Bearer {admin_reg['access_token']}"}
+    from app.database import SessionLocal
+    from app.services.billing_service import BillingService
+    _db = SessionLocal()
+    try:
+        BillingService.change_subscription_plan(_db, admin_reg["user"]["org_id"], "starter")
+    finally:
+        _db.close()
 
     # 2. Admin invites an Engineering Manager
     inv = client.post("/api/v1/auth/invitations", headers=admin_headers, json={

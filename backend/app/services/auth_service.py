@@ -1,4 +1,8 @@
 import uuid
+import time
+import hmac
+import base64
+import struct
 import secrets
 import hashlib
 import bcrypt
@@ -11,8 +15,66 @@ from sqlalchemy.orm import Session
 from app.config import settings
 from app.database import get_db
 from app.models.all_models import User, Organization, RevokedToken, OrganizationInvitation
+from app.services.crypto_service import encrypt_credential, decrypt_credential
 
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl=f"{settings.API_V1_STR}/auth/login")
+
+def validate_password_bounds(password: str) -> None:
+    if len(password) < 8:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Password must be at least 8 characters long",
+        )
+    if len(password.encode("utf-8")) > 72:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Password must not exceed 72 UTF-8 bytes",
+        )
+
+def generate_totp_secret(num_bytes: int = 20) -> str:
+    """Generate an RFC 6238 compliant Base32-encoded 160-bit TOTP secret."""
+    return base64.b32encode(secrets.token_bytes(num_bytes)).decode("ascii").rstrip("=")
+
+def generate_totp_code(secret_b32: str, for_time: Optional[int] = None, step: int = 30, digits: int = 6) -> str:
+    """Compute a 6-digit RFC 6238 TOTP code using HMAC-SHA1 dynamic truncation."""
+    normalized = secret_b32.strip().upper().replace(" ", "")
+    padding = "=" * ((8 - len(normalized) % 8) % 8)
+    key = base64.b32decode(normalized + padding, casefold=True)
+    ts = int(for_time if for_time is not None else time.time())
+    counter = struct.pack(">Q", ts // step)
+    digest = hmac.new(key, counter, hashlib.sha1).digest()
+    offset = digest[-1] & 0x0F
+    binary = struct.unpack(">I", digest[offset:offset + 4])[0] & 0x7FFFFFFF
+    otp = binary % (10 ** digits)
+    return str(otp).zfill(digits)
+
+def verify_totp_code(secret_b32: str, code: str, window: int = 1, for_time: Optional[int] = None) -> bool:
+    """Verify a 6-digit TOTP code within +/- window 30-second steps using constant-time comparison."""
+    clean_code = (code or "").strip()
+    if len(clean_code) != 6 or not clean_code.isdigit() or not secret_b32:
+        return False
+    base_time = int(for_time if for_time is not None else time.time())
+    try:
+        for offset in range(-window, window + 1):
+            candidate = generate_totp_code(secret_b32, for_time=base_time + (offset * 30))
+            if hmac.compare_digest(candidate, clean_code):
+                return True
+    except Exception:
+        return False
+    return False
+
+def decrypt_mfa_secret(stored_secret: Optional[str]) -> str:
+    """Decrypt Fernet-encrypted MFA secret at rest, with safe fallback for Base32 test fixtures."""
+    if not stored_secret:
+        return ""
+    decrypted = decrypt_credential(stored_secret, safe_fallback=True)
+    if decrypted:
+        return decrypted
+    # Fallback only if stored_secret itself is a valid Base32 secret (24-64 uppercase base32 chars)
+    candidate = stored_secret.strip()
+    if 16 <= len(candidate) <= 64 and all(c in "ABCDEFGHIJKLMNOPQRSTUVWXYZ234567=" for c in candidate.upper()):
+        return candidate.upper()
+    return ""
 
 def verify_password(plain_password: str, hashed_password: str) -> bool:
     try:
@@ -97,6 +159,24 @@ def get_current_user(token: str = Depends(oauth2_scheme), db: Session = Depends(
     user = db.query(User).filter(User.id == user_id, User.is_active == True).first()
     if user is None:
         raise credentials_exception
+
+    # Invalidate tokens issued prior to a password change or reset
+    iat = payload.get("iat")
+    if user.password_changed_at and iat is not None:
+        try:
+            issued_at = datetime.utcfromtimestamp(float(iat))
+            pwd_changed_floor = user.password_changed_at.replace(microsecond=0)
+            if issued_at < pwd_changed_floor:
+                raise HTTPException(
+                    status_code=status.HTTP_401_UNAUTHORIZED,
+                    detail="Session invalidated due to password change. Please log in again.",
+                    headers={"WWW-Authenticate": "Bearer"},
+                )
+        except HTTPException:
+            raise
+        except Exception:
+            raise credentials_exception
+
     return user
 
 class UserRole:
@@ -128,7 +208,7 @@ ROLE_PERMISSIONS = {
         "assessments:run", "repositories:manage", "risks:manage", "reports:export", "data:read"
     },
     UserRole.ADMINISTRATOR: {
-        "org:manage", "teams:manage",
+        "org:manage", "billing:manage", "teams:manage",
         "projects:create", "projects:edit", "projects:delete",
         "assessments:run", "repositories:manage", "risks:manage", "reports:export", "data:read"
     },
@@ -166,8 +246,10 @@ def require_roles(allowed_roles: List[str]):
         # SuperAdmin inherits all roles
         if current_user.role == UserRole.SUPER_ADMIN:
             return current_user
-        # Owner inherits Administrator and Engineering Manager roles
-        if current_user.role == UserRole.OWNER and any(r in allowed_roles for r in [UserRole.ADMINISTRATOR, UserRole.ENGINEERING_MANAGER]):
+        # Owner inherits Administrator, Engineering Manager, and Developer roles
+        if current_user.role == UserRole.OWNER and any(
+            r in allowed_roles for r in [UserRole.ADMINISTRATOR, UserRole.ENGINEERING_MANAGER, UserRole.DEVELOPER]
+        ):
             return current_user
         if current_user.role not in allowed_roles:
             raise HTTPException(

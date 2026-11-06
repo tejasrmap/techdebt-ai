@@ -2,6 +2,7 @@ from typing import List, Optional
 from datetime import datetime
 from fastapi import APIRouter, Depends, HTTPException, status, Query
 from pydantic import BaseModel
+from sqlalchemy import or_
 from sqlalchemy.orm import Session
 from app.database import get_db
 from app.models.all_models import Project, User, ProjectTechnology, Assessment, AuditLog, ProjectTeamPermission, Team, HistoricalAssessment, RiskFinding
@@ -286,7 +287,10 @@ def get_project_activity(
         db.query(AuditLog)
         .filter(
             AuditLog.org_id == current_user.org_id,
-            (AuditLog.resource_id == project_id) | (AuditLog.resource_type == "project")
+            or_(
+                AuditLog.resource_id == project_id,
+                (AuditLog.resource_type == "project") & (AuditLog.resource_id == project_id),
+            ),
         )
         .order_by(AuditLog.created_at.desc())
         .limit(50)

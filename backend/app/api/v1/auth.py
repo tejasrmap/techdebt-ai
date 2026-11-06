@@ -15,8 +15,10 @@ from app.services.auth_service import (
     verify_password, get_password_hash, create_access_token,
     get_current_user, revoke_token, oauth2_scheme,
     require_roles, generate_invitation_token, hash_invitation_token,
-    cleanup_expired_revoked_tokens
+    cleanup_expired_revoked_tokens, validate_password_bounds,
+    generate_totp_secret, verify_totp_code, decrypt_mfa_secret
 )
+from app.services.crypto_service import encrypt_credential
 from app.services.rate_limiter import rate_limit_auth, rate_limiter
 
 router = APIRouter(prefix="/auth", tags=["Authentication"])
@@ -48,10 +50,13 @@ def register(req: UserRegister, request: Request, db: Session = Depends(get_db))
             detail="An organization with this name already exists. Please choose a distinct name or ask your organization administrator for an invitation."
         )
 
-    org = Organization(name=org_name_clean, slug=slug, plan="enterprise")
+    org = Organization(name=org_name_clean, slug=slug, plan="free")
     db.add(org)
     db.commit()
     db.refresh(org)
+
+    from app.services.billing_service import BillingService
+    BillingService.get_or_create_subscription(db, org.id)
 
     raw_verif_token = secrets.token_urlsafe(32)
     verif_token_hash = hashlib.sha256(raw_verif_token.encode("utf-8")).hexdigest()
@@ -94,6 +99,7 @@ def register(req: UserRegister, request: Request, db: Session = Depends(get_db))
             "organization_name": org.name,
             "is_verified": user.is_verified,
             "is_active": user.is_active,
+            "mfa_enabled": bool(user.mfa_enabled),
             "created_at": user.created_at
         }
     }
@@ -114,6 +120,19 @@ def login(req: UserLogin, request: Request, db: Session = Depends(get_db)):
             detail="User account is deactivated. Contact organization administrator."
         )
 
+    if user.mfa_enabled:
+        if not req.mfa_code or not req.mfa_code.strip():
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="MFA_REQUIRED: Multi-factor authentication code is required."
+            )
+        secret_b32 = decrypt_mfa_secret(user.mfa_secret)
+        if not verify_totp_code(secret_b32, req.mfa_code):
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Invalid multi-factor authentication code."
+            )
+
     # Log successful login in audit log
     audit = AuditLog(
         user_id=user.id,
@@ -121,7 +140,7 @@ def login(req: UserLogin, request: Request, db: Session = Depends(get_db)):
         action="auth.login",
         resource_type="user",
         resource_id=user.id,
-        details={"ip": request.client.host if request.client else "unknown"}
+        details={"ip": request.client.host if request.client else "unknown", "mfa_verified": bool(user.mfa_enabled)}
     )
     db.add(audit)
     db.commit()
@@ -139,21 +158,9 @@ def login(req: UserLogin, request: Request, db: Session = Depends(get_db)):
             "organization_name": user.organization.name if user.organization else "",
             "is_verified": user.is_verified,
             "is_active": user.is_active,
+            "mfa_enabled": bool(user.mfa_enabled),
             "created_at": user.created_at
         }
-    }
-
-
-@router.get("/me", response_model=UserResponse)
-def get_me(current_user: User = Depends(get_current_user)):
-    return {
-        "id": current_user.id,
-        "email": current_user.email,
-        "full_name": current_user.full_name,
-        "role": current_user.role,
-        "org_id": current_user.org_id,
-        "organization_name": current_user.organization.name if current_user.organization else "",
-        "created_at": current_user.created_at
     }
 
 @router.post("/logout")
@@ -529,17 +536,17 @@ def reset_password(req: ResetPasswordRequest, request: Request, db: Session = De
         db.commit()
         raise HTTPException(status_code=400, detail="Invalid or expired password reset token")
 
-    if len(req.new_password) < 8:
-        raise HTTPException(status_code=400, detail="Password must be at least 8 characters long")
+    validate_password_bounds(req.new_password)
 
-    # Invalidate token immediately (single use) and set new password
+    # Invalidate token immediately (single use), set new password, and invalidate older sessions
     user.hashed_password = get_password_hash(req.new_password)
+    user.password_changed_at = datetime.utcnow()
     user.reset_password_token = None
     user.reset_password_token_expires_at = None
     db.commit()
     return {"message": "Password has been successfully reset. Please log in with your new credentials."}
 
-@router.get("/me")
+@router.get("/me", response_model=UserResponse)
 def get_current_user_profile(current_user: User = Depends(get_current_user)):
     """Get current user's profile and organization details."""
     return {
@@ -549,9 +556,10 @@ def get_current_user_profile(current_user: User = Depends(get_current_user)):
         "role": current_user.role,
         "org_id": current_user.org_id,
         "organization_name": current_user.organization.name if current_user.organization else "",
-        "is_verified": getattr(current_user, "is_verified", False),
-        "mfa_enabled": getattr(current_user, "mfa_enabled", False),
-        "created_at": current_user.created_at.isoformat()
+        "is_verified": bool(getattr(current_user, "is_verified", False)),
+        "is_active": bool(getattr(current_user, "is_active", True)),
+        "mfa_enabled": bool(getattr(current_user, "mfa_enabled", False)),
+        "created_at": current_user.created_at
     }
 
 @router.put("/me")
@@ -581,12 +589,12 @@ def change_password(
     """Change account password securely and record audit event."""
     if not verify_password(req.current_password, current_user.hashed_password):
         raise HTTPException(status_code=400, detail="Incorrect current password")
-    if len(req.new_password) < 8:
-        raise HTTPException(status_code=400, detail="New password must be at least 8 characters long")
+    validate_password_bounds(req.new_password)
     if req.current_password == req.new_password:
         raise HTTPException(status_code=400, detail="New password cannot be identical to current password")
 
     current_user.hashed_password = get_password_hash(req.new_password)
+    current_user.password_changed_at = datetime.utcnow()
     
     audit = AuditLog(
         user_id=current_user.id,
@@ -600,15 +608,23 @@ def change_password(
     db.commit()
     return {"message": "Password changed successfully"}
 
+class MFADisableRequest(BaseModel):
+    password: str
+    code: str
+
 @router.post("/mfa/setup")
 def setup_mfa(current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
-    """Initiate MFA setup."""
-    secret = secrets.token_hex(16).upper()
-    current_user.mfa_secret = secret
+    """Initiate RFC 6238 TOTP MFA setup with Fernet-encrypted secret storage."""
+    secret_b32 = generate_totp_secret()
+    current_user.mfa_secret = encrypt_credential(secret_b32)
+    current_user.mfa_enabled = False
     db.commit()
-    otpauth = f"otpauth://totp/TechDebtAI:{current_user.email}?secret={secret}&issuer=TechDebtAI"
+    otpauth = (
+        f"otpauth://totp/TechDebtAI:{current_user.email}"
+        f"?secret={secret_b32}&issuer=TechDebtAI&algorithm=SHA1&digits=6&period=30"
+    )
     return {
-        "mfa_secret": secret,
+        "mfa_secret": secret_b32,
         "otpauth_url": otpauth
     }
 
@@ -618,17 +634,54 @@ def verify_mfa(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
-    """Verify code and activate MFA."""
+    """Cryptographically verify 6-digit RFC 6238 TOTP code and activate MFA."""
     if not current_user.mfa_secret:
         raise HTTPException(status_code=400, detail="MFA setup has not been initiated")
-    # For commercial deployment, verify 6-digit TOTP code
-    code = req.code.strip()
-    if len(code) == 6 and code.isdigit():
-        current_user.mfa_enabled = True
-        db.commit()
-        return {"message": "Two-factor authentication successfully enabled", "mfa_enabled": True}
-    else:
+    secret_b32 = decrypt_mfa_secret(current_user.mfa_secret)
+    if not verify_totp_code(secret_b32, req.code):
         raise HTTPException(status_code=400, detail="Invalid 6-digit verification code")
+
+    current_user.mfa_enabled = True
+    audit = AuditLog(
+        user_id=current_user.id,
+        org_id=current_user.org_id,
+        action="auth.mfa_enabled",
+        resource_type="user",
+        resource_id=current_user.id,
+        details={"email": current_user.email}
+    )
+    db.add(audit)
+    db.commit()
+    return {"message": "Two-factor authentication successfully enabled", "mfa_enabled": True}
+
+@router.post("/mfa/disable")
+def disable_mfa(
+    req: MFADisableRequest,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """Disable MFA after verifying current password and active TOTP code."""
+    if not current_user.mfa_enabled:
+        return {"message": "Two-factor authentication is already disabled", "mfa_enabled": False}
+    if not verify_password(req.password, current_user.hashed_password):
+        raise HTTPException(status_code=400, detail="Incorrect password")
+    secret_b32 = decrypt_mfa_secret(current_user.mfa_secret)
+    if not verify_totp_code(secret_b32, req.code):
+        raise HTTPException(status_code=400, detail="Invalid 6-digit verification code")
+
+    current_user.mfa_enabled = False
+    current_user.mfa_secret = None
+    audit = AuditLog(
+        user_id=current_user.id,
+        org_id=current_user.org_id,
+        action="auth.mfa_disabled",
+        resource_type="user",
+        resource_id=current_user.id,
+        details={"email": current_user.email}
+    )
+    db.add(audit)
+    db.commit()
+    return {"message": "Two-factor authentication disabled", "mfa_enabled": False}
 
 @router.delete("/account")
 def delete_account(

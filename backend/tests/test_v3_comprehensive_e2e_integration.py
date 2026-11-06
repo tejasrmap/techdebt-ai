@@ -174,11 +174,23 @@ def test_v3_complete_e2e_customer_and_platform_lifecycle(db: Session):
     assert j_data["metadata"]["vendor"] == "GT InnoX LLP"
     assert j_data["executive_summary"]["overall_health_score"] == 84.5
 
-    # Step 8: Commercial Invoice Generation
-    inv_res = client.post("/api/v1/billing/invoices/generate-manual", json={
-        "amount_dollars": 499.00,
-        "description": "TechDebt AI Enterprise Annual Subscription"
-    }, headers=headers)
+    # Step 8: Commercial Invoice Generation via Verified Payment Order
+    import os, hmac, hashlib
+    from unittest.mock import patch
+    mock_order_id = f"order_v3e2e_{uid}"
+    mock_pay_id = f"pay_v3e2e_{uid}"
+    with patch.dict(os.environ, {"RAZORPAY_KEY_ID": "rzp_test_mock_v3", "RAZORPAY_KEY_SECRET": "rzp_test_sec_v3", "RAZORPAY_CURRENCY": "USD"}):
+        with patch.object(BillingService, "_post_razorpay_order", return_value={"id": mock_order_id, "amount": 49900, "currency": "USD"}):
+            ord_res = client.post("/api/v1/billing/razorpay/create-order", json={"plan_slug": "enterprise", "billing_cycle": "monthly"}, headers=headers)
+            assert ord_res.status_code == 200
+        sig = hmac.new(b"rzp_test_sec_v3", f"{mock_order_id}|{mock_pay_id}".encode(), hashlib.sha256).hexdigest()
+        inv_res = client.post("/api/v1/billing/razorpay/verify-payment", json={
+            "plan_slug": "enterprise",
+            "billing_cycle": "monthly",
+            "razorpay_order_id": mock_order_id,
+            "razorpay_payment_id": mock_pay_id,
+            "razorpay_signature": sig,
+        }, headers=headers)
     assert inv_res.status_code == 200
     inv_id = inv_res.json()["invoice_id"]
 

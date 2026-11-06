@@ -34,19 +34,22 @@ def get_test_headers(role: str = "Administrator"):
     return {"Authorization": f"Bearer {token}"}, org_id
 
 def test_stripe_checkout_endpoint():
+    import os
+    from unittest.mock import patch
     headers, org_id = get_test_headers(role="Administrator")
 
-    # 1. Successful checkout initiation
-    checkout_res = client.post("/api/v1/billing/checkout", json={
-        "plan_slug": "professional",
-        "billing_cycle": "yearly"
-    }, headers=headers)
+    # 1. Successful checkout initiation creates server-side pending order without activating paid plan prematurely
+    mock_order_id = f"order_chk_{uuid.uuid4().hex[:10]}"
+    with patch.dict(os.environ, {"RAZORPAY_KEY_ID": "rzp_test_mock_chk", "RAZORPAY_KEY_SECRET": "rzp_test_sec_chk", "RAZORPAY_CURRENCY": "USD"}):
+        with patch.object(BillingService, "_post_razorpay_order", return_value={"id": mock_order_id, "amount": 199000, "currency": "USD"}):
+            checkout_res = client.post("/api/v1/billing/checkout", json={
+                "plan_slug": "professional",
+                "billing_cycle": "yearly"
+            }, headers=headers)
     assert checkout_res.status_code == 200
     c_data = checkout_res.json()
-    assert c_data["mode"] in ("live_stripe", "sandbox")
-    if c_data["mode"] == "sandbox":
-        assert c_data["plan_id"] == "professional"
-        assert c_data["status"] == "active"
+    assert c_data["mode"] in ("live_stripe", "live_razorpay")
+    assert c_data["status"] == "pending_payment"
 
     # 2. Non-existent plan returns 404
     bad_res = client.post("/api/v1/billing/checkout", json={
@@ -65,7 +68,7 @@ def test_customer_portal_endpoints():
     assert portal_res.status_code == 200
     p_data = portal_res.json()
     assert "portal_url" in p_data
-    assert p_data["mode"] in ("live_stripe", "sandbox")
+    assert p_data["mode"] in ("live_stripe", "self_service")
 
     # 2. GET /billing/portal/session
     session_res = client.get("/api/v1/billing/portal/session", headers=headers)

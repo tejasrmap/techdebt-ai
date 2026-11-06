@@ -108,14 +108,29 @@ def test_subscription_upgrade_api_workflow():
     assert sub_data["plan_slug"] == "free"
     assert sub_data["limits"]["max_projects"] == 1
 
-    # 2. Upgrade to starter tier via /subscribe endpoint
-    up_res = client.post("/api/v1/billing/subscribe", json={
-        "plan_slug": "starter",
-        "billing_cycle": "monthly"
-    }, headers=headers)
-    assert up_res.status_code == 200
-    up_data = up_res.json()
-    assert up_data["status"] in ("active", "success")
+    # 2. Upgrade to starter tier via verified order + HMAC signature
+    import os, hmac, hashlib
+    from unittest.mock import patch
+    mock_order_id = f"order_sub_{uuid.uuid4().hex[:10]}"
+    mock_pay_id = f"pay_sub_{uuid.uuid4().hex[:10]}"
+    with patch.dict(os.environ, {"RAZORPAY_KEY_ID": "rzp_test_mock_sub", "RAZORPAY_KEY_SECRET": "rzp_test_sec_sub", "RAZORPAY_CURRENCY": "USD"}):
+        with patch.object(BillingService, "_post_razorpay_order", return_value={"id": mock_order_id, "amount": 4900, "currency": "USD"}):
+            up_res = client.post("/api/v1/billing/subscribe", json={
+                "plan_slug": "starter",
+                "billing_cycle": "monthly"
+            }, headers=headers)
+            assert up_res.status_code == 200
+            assert up_res.json()["status"] == "pending_payment"
+        sig = hmac.new(b"rzp_test_sec_sub", f"{mock_order_id}|{mock_pay_id}".encode(), hashlib.sha256).hexdigest()
+        ver_res = client.post("/api/v1/billing/razorpay/verify-payment", json={
+            "plan_slug": "starter",
+            "billing_cycle": "monthly",
+            "razorpay_order_id": mock_order_id,
+            "razorpay_payment_id": mock_pay_id,
+            "razorpay_signature": sig,
+        }, headers=headers)
+        assert ver_res.status_code == 200
+        assert ver_res.json()["status"] == "active"
 
     # 3. Check updated subscription
     updated_sub = client.get("/api/v1/billing/subscription", headers=headers).json()

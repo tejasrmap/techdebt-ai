@@ -48,18 +48,22 @@ def test_alembic_migration_chain_integrity():
     config = Config(alembic_ini_path)
     script_dir = ScriptDirectory.from_config(config)
 
-    # Verify head is 004_v3_ai_usage_ledgers_and_indexes
+    # Verify head is 005_v3_1_platform_strengthening
     heads = script_dir.get_heads()
-    assert "004_v3_ai_usage_ledgers_and_indexes" in heads, f"Expected head revision, found: {heads}"
+    assert "005_v3_1_platform_strengthening" in heads, f"Expected head revision, found: {heads}"
 
     # Verify linear revision sequence
     revisions = [rev.revision for rev in script_dir.walk_revisions()]
+    assert "005_v3_1_platform_strengthening" in revisions
     assert "004_v3_ai_usage_ledgers_and_indexes" in revisions
     assert "003_v2_commercial_saas_platform" in revisions
     assert "002_transactional_fencing_and_memento_cleanup" in revisions
     assert "001_initial_complete_schema" in revisions
 
     # Verify parent links
+    rev_005 = script_dir.get_revision("005_v3_1_platform_strengthening")
+    assert rev_005.down_revision == "004_v3_ai_usage_ledgers_and_indexes"
+
     rev_004 = script_dir.get_revision("004_v3_ai_usage_ledgers_and_indexes")
     assert rev_004.down_revision == "003_v2_commercial_saas_platform"
 

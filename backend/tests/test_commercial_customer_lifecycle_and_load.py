@@ -44,13 +44,32 @@ def test_commercial_full_customer_journey(db: Session):
     org_id = reg_resp.json()["user"]["org_id"]
     headers = {"Authorization": f"Bearer {token}"}
 
-    # 2. Plan upgrade to Enterprise
-    sub_resp = client.post("/api/v1/billing/subscribe", json={
-        "plan_slug": "enterprise",
-        "billing_cycle": "annual"
-    }, headers=headers)
-    assert sub_resp.status_code == 200
-    assert sub_resp.json()["status"] == "active"
+    # 2. Plan upgrade to Enterprise via verified server-side Razorpay order + HMAC verification
+    import os, hmac, hashlib
+    from unittest.mock import patch
+    from app.services.billing_service import BillingService
+    mock_order_id = f"order_ent_{uid}"
+    mock_pay_id = f"pay_ent_{uid}"
+    with patch.dict(os.environ, {"RAZORPAY_KEY_ID": "rzp_test_mock_life", "RAZORPAY_KEY_SECRET": "rzp_test_sec_life", "RAZORPAY_CURRENCY": "USD"}):
+        with patch.object(BillingService, "_post_razorpay_order", return_value={"id": mock_order_id, "amount": 499000, "currency": "USD"}):
+            sub_resp = client.post("/api/v1/billing/subscribe", json={
+                "plan_slug": "enterprise",
+                "billing_cycle": "annual"
+            }, headers=headers)
+            assert sub_resp.status_code == 200
+            assert sub_resp.json()["status"] == "pending_payment"
+
+        sig = hmac.new(b"rzp_test_sec_life", f"{mock_order_id}|{mock_pay_id}".encode(), hashlib.sha256).hexdigest()
+        ver_resp = client.post("/api/v1/billing/razorpay/verify-payment", json={
+            "plan_slug": "enterprise",
+            "billing_cycle": "annual",
+            "razorpay_order_id": mock_order_id,
+            "razorpay_payment_id": mock_pay_id,
+            "razorpay_signature": sig,
+        }, headers=headers)
+        assert ver_resp.status_code == 200
+        assert ver_resp.json()["status"] == "active"
+        verified_invoice_id = ver_resp.json()["invoice_id"]
 
     # Verify subscription details
     sub_details = client.get("/api/v1/billing/subscription", headers=headers)
@@ -131,13 +150,11 @@ def test_commercial_full_customer_journey(db: Session):
     assert pdf_report.status_code == 200
     assert "application/pdf" in pdf_report.headers["content-type"]
 
-    # 7. Invoice generation and receipt viewing
-    inv_resp = client.post("/api/v1/billing/invoices/generate-manual", json={
-        "amount_dollars": 299.00,
-        "description": "TechDebt AI Enterprise Annual Subscription"
-    }, headers=headers)
-    assert inv_resp.status_code == 200
-    invoice_id = inv_resp.json()["invoice_id"]
+    # 7. Verified payment invoice retrieval and receipt viewing
+    invoices_resp = client.get("/api/v1/billing/invoices", headers=headers)
+    assert invoices_resp.status_code == 200
+    assert any(i["id"] == verified_invoice_id for i in invoices_resp.json())
+    invoice_id = verified_invoice_id
 
     receipt_resp = client.get(f"/api/v1/billing/invoices/{invoice_id}/download", headers=headers)
     assert receipt_resp.status_code == 200

@@ -5,7 +5,7 @@ from pydantic import BaseModel
 from app.database import get_db
 from app.models.all_models import Assessment, Project, User, TechnologyScore, EvidenceSource, AuditLog
 from app.schemas.schemas import AssessmentRunRequest, AssessmentResponse, TechnologyScoreResponse, EvidenceSourceResponse
-from app.services.auth_service import get_current_user
+from app.services.auth_service import get_current_user, require_roles, UserRole
 from app.services.scheduler_service import execute_project_review
 from app.services.memento_adapter import MementoMemoryAdapter
 from app.services.debt_scoring_engine import CommercialDebtScoringEngine
@@ -13,7 +13,13 @@ from app.services.debt_scoring_engine import CommercialDebtScoringEngine
 router = APIRouter(prefix="/assessments", tags=["Assessments"])
 
 @router.post("/run", response_model=AssessmentResponse)
-async def run_assessment(req: AssessmentRunRequest, current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+async def run_assessment(
+    req: AssessmentRunRequest,
+    current_user: User = Depends(require_roles([
+        UserRole.SUPER_ADMIN, UserRole.OWNER, UserRole.ADMINISTRATOR, UserRole.ENGINEERING_MANAGER, UserRole.DEVELOPER
+    ])),
+    db: Session = Depends(get_db)
+):
     # 1. Enforce organization ownership check
     project = db.query(Project).filter(Project.id == req.project_id, Project.org_id == current_user.org_id).first()
     if not project:

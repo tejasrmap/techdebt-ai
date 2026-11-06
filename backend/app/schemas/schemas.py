@@ -16,6 +16,8 @@ class UserRegister(BaseModel):
     def validate_password_strength(cls, v: str) -> str:
         if len(v) < 8:
             raise ValueError("Password must be at least 8 characters long")
+        if len(v.encode("utf-8")) > 72:
+            raise ValueError("Password must not exceed 72 UTF-8 bytes")
         return v
 
     @field_validator("organization_name")
@@ -29,6 +31,7 @@ class UserRegister(BaseModel):
 class UserLogin(BaseModel):
     email: EmailStr
     password: str
+    mfa_code: Optional[str] = None
 
 class UserResponse(BaseModel):
     id: str
@@ -39,6 +42,7 @@ class UserResponse(BaseModel):
     organization_name: Optional[str] = None
     is_verified: bool = False
     is_active: bool = True
+    mfa_enabled: bool = False
     created_at: datetime
     model_config = {"from_attributes": True}
 
@@ -82,6 +86,8 @@ class InvitationAccept(BaseModel):
     def validate_password_strength(cls, v: str) -> str:
         if len(v) < 8:
             raise ValueError("Password must be at least 8 characters long")
+        if len(v.encode("utf-8")) > 72:
+            raise ValueError("Password must not exceed 72 UTF-8 bytes")
         return v
 
 # --- Project ---

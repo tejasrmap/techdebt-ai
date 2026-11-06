@@ -1,6 +1,7 @@
 from typing import Optional, List
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel
+from sqlalchemy import or_
 from sqlalchemy.orm import Session
 
 from app.database import get_db
@@ -106,7 +107,7 @@ def get_team_detail(
                 "email": u.email,
                 "full_name": u.full_name,
                 "team_role": tm.role,
-                "joined_at": tm.joined_at.isoformat()
+                "joined_at": tm.created_at.isoformat() if tm.created_at else None
             }
             for tm, u in members
         ],
@@ -114,7 +115,7 @@ def get_team_detail(
             {
                 "project_id": p.id,
                 "name": p.name,
-                "permission_level": ptp.permission_level
+                "permission_level": ptp.permission
             }
             for ptp, p in permissions
         ]
@@ -135,8 +136,10 @@ def add_team_member(
     if not user:
         raise HTTPException(status_code=404, detail="User not found in organization")
 
-    # Check entitlement for team members
-    allowed, limit, current = BillingService.check_entitlement(db, current_user.org_id, "team_members")
+    # User is already an organization member; verify org is not over seat quota without counting an extra seat
+    allowed, limit, current = BillingService.check_entitlement(
+        db, current_user.org_id, "team_members", additional_quantity=0
+    )
     if not allowed:
         raise HTTPException(
             status_code=403,
@@ -197,11 +200,11 @@ def assign_project_to_team(
         perm = ProjectTeamPermission(
             team_id=team_id,
             project_id=project_id,
-            permission_level=req.permission_level
+            permission=req.permission_level
         )
         db.add(perm)
     else:
-        perm.permission_level = req.permission_level
+        perm.permission = req.permission_level
 
     db.commit()
     return {"message": f"Assigned project {project.name} to team {team.name} with {req.permission_level} permission"}
@@ -221,7 +224,7 @@ def get_team_activity(
         db.query(AuditLog)
         .filter(
             AuditLog.org_id == current_user.org_id,
-            (AuditLog.resource_id == team_id) | (AuditLog.action.like("team.%"))
+            or_(AuditLog.resource_id == team_id, AuditLog.action.like("team.%")),
         )
         .order_by(AuditLog.created_at.desc())
         .limit(50)

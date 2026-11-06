@@ -1,4 +1,5 @@
 import os
+import re
 import shutil
 import hashlib
 import json
@@ -6,6 +7,8 @@ import sqlite3
 from datetime import datetime
 from typing import Dict, Any, List, Optional
 from app.config import settings
+
+SAFE_BACKUP_ID_RE = re.compile(r"^backup_\d{8}_\d{6}$")
 
 class DisasterRecoveryService:
     """
@@ -132,21 +135,29 @@ class DisasterRecoveryService:
     @classmethod
     def restore_backup(cls, backup_id: str, custom_backup_dir: Optional[str] = None) -> bool:
         """
-        Restores database from point-in-time snapshot after strict integrity verification.
+        Restores database from point-in-time snapshot after strict path confinement and integrity verification.
         """
-        target_dir = custom_backup_dir or cls.BACKUP_DIR
-        manifest_path = os.path.join(target_dir, f"{backup_id}_manifest.json")
+        clean_id = (backup_id or "").strip()
+        if not SAFE_BACKUP_ID_RE.fullmatch(clean_id):
+            raise ValueError("Invalid backup_id format. Path traversal or arbitrary filenames are prohibited.")
+
+        target_dir = os.path.realpath(custom_backup_dir or cls.BACKUP_DIR)
+        manifest_path = os.path.realpath(os.path.join(target_dir, f"{clean_id}_manifest.json"))
+        if os.path.commonpath([target_dir, manifest_path]) != target_dir:
+            raise ValueError("Backup manifest path escapes permitted backup directory.")
         if not os.path.exists(manifest_path):
-            raise FileNotFoundError(f"Backup manifest for {backup_id} not found.")
+            raise FileNotFoundError(f"Backup manifest for {clean_id} not found.")
 
         # Verify cryptographic integrity first
         if not cls.verify_backup_integrity(manifest_path):
-            raise ValueError(f"Integrity check failed: Backup archive {backup_id} is corrupt or altered.")
+            raise ValueError(f"Integrity check failed: Backup archive {clean_id} is corrupt or altered.")
 
         with open(manifest_path, "r", encoding="utf-8") as f:
             manifest = json.load(f)
 
-        source_file = manifest.get("file_path")
+        source_file = os.path.realpath(str(manifest.get("file_path") or ""))
+        if not source_file or os.path.commonpath([target_dir, source_file]) != target_dir:
+            raise ValueError("Backup archive file path escapes permitted backup directory.")
         db_url = settings.DATABASE_URL
 
         if db_url.startswith("sqlite"):

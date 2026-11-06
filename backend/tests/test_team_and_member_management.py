@@ -23,6 +23,12 @@ def test_invitation_expiration_and_revocation():
     }).json()
     token = reg["access_token"]
     headers = {"Authorization": f"Bearer {token}"}
+    from app.services.billing_service import BillingService
+    _db = SessionLocal()
+    try:
+        BillingService.change_subscription_plan(_db, reg["user"]["org_id"], "starter")
+    finally:
+        _db.close()
 
     # 1. Create invitation
     inv_res = client.post("/api/v1/auth/invitations", headers=headers, json={
@@ -81,6 +87,12 @@ def test_member_role_management_and_privilege_escalation():
     }).json()
     owner_token = reg["access_token"]
     owner_headers = {"Authorization": f"Bearer {owner_token}"}
+    from app.services.billing_service import BillingService
+    _db = SessionLocal()
+    try:
+        BillingService.change_subscription_plan(_db, reg["user"]["org_id"], "starter")
+    finally:
+        _db.close()
 
     # Invite a developer
     inv = client.post("/api/v1/auth/invitations", headers=owner_headers, json={

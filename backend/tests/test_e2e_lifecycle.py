@@ -27,6 +27,15 @@ def test_full_26_step_end_to_end_acceptance():
     admin_headers = {"Authorization": f"Bearer {admin_token}"}
     assert admin_auth["user"]["role"] == "Administrator"
 
+    # Provision enterprise plan for multi-seat E2E acceptance test
+    from app.database import SessionLocal
+    from app.services.billing_service import BillingService
+    _db = SessionLocal()
+    try:
+        BillingService.change_subscription_plan(_db, admin_auth["user"]["org_id"], "enterprise")
+    finally:
+        _db.close()
+
     # Step 3: Invite a developer
     inv_res = client.post("/api/v1/auth/invitations", headers=admin_headers, json={
         "email": f"dev_e2e_{uid}@e2ecorp.com",

@@ -42,15 +42,32 @@ def test_entitlement_enforcement_and_metering():
         usage = BillingService.get_monthly_usage(db, org.id)
         assert usage.get("monthly_assessments", 0) == 3
 
-        # Upgrade to Professional
-        upgrade_res = BillingService.create_checkout_session(
-            db=db,
-            org_id=org.id,
-            user_email="admin@example.com",
-            plan_slug="professional",
-            billing_cycle="annual"
-        )
-        assert upgrade_res["status"] in ("active", "checkout_ready")
+        # Upgrade to Professional via verified server-side Razorpay order + HMAC verification
+        import os, hmac, hashlib
+        from unittest.mock import patch
+        mock_order_id = f"order_ent_{uuid.uuid4().hex[:10]}"
+        mock_pay_id = f"pay_ent_{uuid.uuid4().hex[:10]}"
+        with patch.dict(os.environ, {"RAZORPAY_KEY_ID": "rzp_test_mock_ent", "RAZORPAY_KEY_SECRET": "rzp_test_sec_ent", "RAZORPAY_CURRENCY": "USD"}):
+            with patch.object(BillingService, "_post_razorpay_order", return_value={"id": mock_order_id, "amount": 199000, "currency": "USD"}):
+                upgrade_res = BillingService.create_checkout_session(
+                    db=db,
+                    org_id=org.id,
+                    user_email="admin@example.com",
+                    plan_slug="professional",
+                    billing_cycle="annual"
+                )
+            assert upgrade_res["status"] == "pending_payment"
+            sig = hmac.new(b"rzp_test_sec_ent", f"{mock_order_id}|{mock_pay_id}".encode(), hashlib.sha256).hexdigest()
+            verified = BillingService.complete_razorpay_payment(
+                db=db,
+                org_id=org.id,
+                plan_slug="professional",
+                billing_cycle="annual",
+                razorpay_order_id=mock_order_id,
+                razorpay_payment_id=mock_pay_id,
+                razorpay_signature=sig,
+            )
+            assert verified["status"] == "active"
 
         # Refresh subscription
         db.refresh(sub)

@@ -20,12 +20,20 @@ def get_test_headers():
     })
     if reg.status_code in (200, 201):
         token = reg.json()["access_token"]
+        org_id = reg.json()["user"]["org_id"]
     else:
         login = client.post("/api/v1/auth/login", json={
             "email": email,
             "password": "SecurePassword123!"
         })
         token = login.json()["access_token"]
+        org_id = login.json()["user"]["org_id"]
+    db = SessionLocal()
+    try:
+        from app.services.billing_service import BillingService
+        BillingService.change_subscription_plan(db, org_id, "professional")
+    finally:
+        db.close()
     return {"Authorization": f"Bearer {token}"}
 
 def test_conversational_assistant_grounding():

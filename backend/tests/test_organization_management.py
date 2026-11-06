@@ -21,12 +21,14 @@ def test_organization_crud_and_lifecycle():
     token = reg["access_token"]
     headers = {"Authorization": f"Bearer {token}"}
 
-    # Set user role to Owner in DB
+    # Set user role to Owner and provision Starter plan for multi-member ownership transfer test
     from app.database import SessionLocal
     from app.models.all_models import User
+    from app.services.billing_service import BillingService
     db = SessionLocal()
     owner_user = db.query(User).filter(User.email == f"org_owner_{uid}@orgcorp.com").first()
     owner_user.role = "Owner"
+    BillingService.change_subscription_plan(db, owner_user.org_id, "starter")
     db.commit()
     db.close()
 

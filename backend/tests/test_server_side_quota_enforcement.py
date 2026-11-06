@@ -98,12 +98,27 @@ def test_ai_feature_gating_and_upgrade():
     assert ai_res.status_code in (402, 403)
     assert "subscription plan" in ai_res.json()["detail"].lower()
 
-    # 2. Upgrade to Starter tier
-    up_res = client.post("/api/v1/billing/subscribe", json={
-        "plan_slug": "starter",
-        "billing_cycle": "monthly"
-    }, headers=headers)
-    assert up_res.status_code == 200
+    # 2. Upgrade to Starter tier via verified Razorpay order + HMAC verification
+    import os, hmac, hashlib
+    from unittest.mock import patch
+    mock_order_id = f"order_q_{uuid.uuid4().hex[:10]}"
+    mock_pay_id = f"pay_q_{uuid.uuid4().hex[:10]}"
+    with patch.dict(os.environ, {"RAZORPAY_KEY_ID": "rzp_test_mock_q", "RAZORPAY_KEY_SECRET": "rzp_test_sec_q", "RAZORPAY_CURRENCY": "USD"}):
+        with patch.object(BillingService, "_post_razorpay_order", return_value={"id": mock_order_id, "amount": 4900, "currency": "USD"}):
+            up_res = client.post("/api/v1/billing/subscribe", json={
+                "plan_slug": "starter",
+                "billing_cycle": "monthly"
+            }, headers=headers)
+            assert up_res.status_code == 200
+        sig = hmac.new(b"rzp_test_sec_q", f"{mock_order_id}|{mock_pay_id}".encode(), hashlib.sha256).hexdigest()
+        ver_res = client.post("/api/v1/billing/razorpay/verify-payment", json={
+            "plan_slug": "starter",
+            "billing_cycle": "monthly",
+            "razorpay_order_id": mock_order_id,
+            "razorpay_payment_id": mock_pay_id,
+            "razorpay_signature": sig,
+        }, headers=headers)
+        assert ver_res.status_code == 200
 
     # 3. Attempt AI assistant again -> Succeeded (200)
     ai_res_success = client.post("/api/v1/intelligence/assistant/chat", json={

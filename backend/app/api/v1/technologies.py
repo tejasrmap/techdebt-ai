@@ -110,7 +110,11 @@ def get_technologies(project_id: Optional[str] = None, current_user: User = Depe
         ]
 
 @router.post("", response_model=TechnologyResponse)
-def add_technology(req: TechnologyCreate, current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+def add_technology(
+    req: TechnologyCreate,
+    current_user: User = Depends(require_roles(["SuperAdmin", "Owner", "Administrator", "Engineering Manager", "Developer"])),
+    db: Session = Depends(get_db),
+):
     # If project_id provided, verify organization ownership
     if req.project_id:
         project = db.query(Project).filter(Project.id == req.project_id, Project.org_id == current_user.org_id).first()
@@ -167,7 +171,11 @@ def add_technology(req: TechnologyCreate, current_user: User = Depends(get_curre
     }
 
 @router.post("/import")
-def import_dependencies(req: DependencyImportRequest, current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+def import_dependencies(
+    req: DependencyImportRequest,
+    current_user: User = Depends(require_roles(["SuperAdmin", "Owner", "Administrator", "Engineering Manager", "Developer"])),
+    db: Session = Depends(get_db),
+):
     # 1. Enforce organization ownership check
     project = db.query(Project).filter(Project.id == req.project_id, Project.org_id == current_user.org_id).first()
     if not project:

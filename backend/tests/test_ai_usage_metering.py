@@ -29,6 +29,12 @@ def get_test_headers():
         token = login.json()["access_token"]
         org_id = login.json()["user"]["org_id"]
         user_id = login.json()["user"]["id"]
+    db = SessionLocal()
+    try:
+        from app.services.billing_service import BillingService
+        BillingService.change_subscription_plan(db, org_id, "professional")
+    finally:
+        db.close()
     return {"Authorization": f"Bearer {token}"}, org_id, user_id
 
 def test_ai_cost_calculation():
