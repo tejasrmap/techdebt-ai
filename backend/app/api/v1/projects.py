@@ -4,7 +4,7 @@ from fastapi import APIRouter, Depends, HTTPException, status, Query
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 from app.database import get_db
-from app.models.all_models import Project, User, ProjectTechnology, Assessment, AuditLog, ProjectTeamPermission, Team
+from app.models.all_models import Project, User, ProjectTechnology, Assessment, AuditLog, ProjectTeamPermission, Team, HistoricalAssessment, RiskFinding
 from app.schemas.schemas import ProjectCreate, ProjectUpdate, ProjectResponse
 from app.services.auth_service import get_current_user, require_roles, UserRole
 
@@ -409,3 +409,84 @@ def revoke_team_project_permission(
     db.commit()
 
     return {"message": "Team permission revoked from project"}
+
+@router.get("/{project_id}/debt-history")
+def get_project_debt_history(
+    project_id: str,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    project = db.query(Project).filter(Project.id == project_id, Project.org_id == current_user.org_id).first()
+    if not project:
+        raise HTTPException(status_code=404, detail="Project not found or unauthorized")
+
+    # Fetch historical assessment snapshots
+    historical = (
+        db.query(HistoricalAssessment)
+        .filter(HistoricalAssessment.project_id == project.id)
+        .order_by(HistoricalAssessment.created_at.asc())
+        .all()
+    )
+
+    timeline = []
+    for h in historical:
+        timeline.append({
+            "id": h.id,
+            "assessment_id": h.assessment_id,
+            "timestamp": h.created_at,
+            "health_score": h.health_score,
+            "score_delta": h.score_delta,
+            "risk_classification": h.risk_classification,
+            "summary_of_changes": h.summary_of_changes,
+            "new_risks_count": h.new_risks_count,
+            "resolved_risks_count": h.resolved_risks_count
+        })
+
+    # If no historical assessments yet, synthesize from completed assessments
+    if not timeline:
+        completed = (
+            db.query(Assessment)
+            .filter(Assessment.project_id == project.id, Assessment.status == "completed")
+            .order_by(Assessment.created_at.asc())
+            .all()
+        )
+        prev_score = None
+        for a in completed:
+            delta = round((a.overall_health_score - prev_score), 1) if prev_score is not None else 0.0
+            prev_score = a.overall_health_score
+            timeline.append({
+                "id": a.id,
+                "assessment_id": a.id,
+                "timestamp": a.created_at,
+                "health_score": a.overall_health_score or 80.0,
+                "score_delta": delta,
+                "risk_classification": a.risk_classification,
+                "summary_of_changes": a.summary or "Completed assessment cycle",
+                "new_risks_count": len(a.risks),
+                "resolved_risks_count": 0
+            })
+
+    # Calculate overall trajectory
+    trend = "stable"
+    if len(timeline) >= 2:
+        first_score = timeline[0]["health_score"]
+        last_score = timeline[-1]["health_score"]
+        diff = last_score - first_score
+        if diff > 2.0:
+            trend = "improving"
+        elif diff < -2.0:
+            trend = "degrading"
+
+    total_resolved = sum(t["resolved_risks_count"] for t in timeline)
+    avg_velocity = round((total_resolved / len(timeline)) if timeline else 0.0, 1)
+
+    return {
+        "project_id": project.id,
+        "project_name": project.name,
+        "snapshots_count": len(timeline),
+        "overall_trend": trend,
+        "cumulative_resolved_risks": total_resolved,
+        "remediation_velocity_per_cycle": avg_velocity,
+        "timeline": timeline
+    }
+

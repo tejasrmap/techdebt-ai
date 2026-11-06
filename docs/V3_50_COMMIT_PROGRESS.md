@@ -326,8 +326,20 @@
 - **Tests Executed:** `pytest backend/tests/test_explainable_scoring.py`.
 - **Test Results:** 2 passed, 0 failed.
 - **Documentation Updated:** `docs/V3_50_COMMIT_PROGRESS.md`.
-- **Commit Hash:** `3842d0f`.
+- **Commit Hash:** `f2f9426`.
 - **Remaining Issues:** Proceed to Commit 25 (Technical debt history and remediation tracking).
+
+### COMMIT 25
+- **Title:** `feat: implement technical debt history and remediation tracking`
+- **Scope:** Technical debt lifecycle management, historical snapshot trajectory and trend analysis (improving, degrading, stable), finding status state machine (Open -> Investigating -> Planned -> In Progress -> Resolved -> Accepted Risk), reopen transition detection and audit logging, remediation metrics (MTTR, resolution velocity, open vs resolved breakdown), and REST API endpoints.
+- **Files Changed:** `backend/app/api/v1/risks.py`, `backend/app/api/v1/projects.py`, `backend/tests/test_debt_history_remediation.py`, `docs/V3_50_COMMIT_PROGRESS.md`.
+- **Implementation Summary:** Implemented risk remediation tracking in `backend/app/api/v1/risks.py` (`PATCH /api/v1/risks/{risk_id}/remediation-status` with reopen detection, assignee assignment, resolution timestamping; `GET /api/v1/risks/project/{project_id}/remediation-metrics` calculating MTTR, resolution rate, severity distribution, and assignee leaderboards). Added `GET /api/v1/projects/{project_id}/debt-history` in `backend/app/api/v1/projects.py` delivering snapshot trends, score deltas, and velocity metrics. Added 3 comprehensive tests covering state machine transitions, reopen auditing, MTTR metrics, and historical trajectories.
+- **Tests Executed:** `pytest backend/tests/test_debt_history_remediation.py`.
+- **Test Results:** 3 passed, 0 failed.
+- **Documentation Updated:** `docs/V3_50_COMMIT_PROGRESS.md`.
+- **Commit Hash:** `e5671c4`.
+- **Remaining Issues:** Milestone 5 complete (50% of roadmap achieved: 25/50 commits). Proceed to Milestone 6 (Commit 26: Modular multi-provider AI engine).
+
 
 
 
