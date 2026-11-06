@@ -1,12 +1,14 @@
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
-from typing import List, Optional
+from typing import List, Optional, Dict, Any
+from pydantic import BaseModel
 from app.database import get_db
 from app.models.all_models import Assessment, Project, User, TechnologyScore, EvidenceSource, AuditLog
 from app.schemas.schemas import AssessmentRunRequest, AssessmentResponse, TechnologyScoreResponse, EvidenceSourceResponse
 from app.services.auth_service import get_current_user
 from app.services.scheduler_service import execute_project_review
 from app.services.memento_adapter import MementoMemoryAdapter
+from app.services.debt_scoring_engine import CommercialDebtScoringEngine
 
 router = APIRouter(prefix="/assessments", tags=["Assessments"])
 
@@ -157,3 +159,81 @@ async def get_assessment_comparison(assessment_id: str, current_user: User = Dep
     memento = get_memento_adapter_for_org(current_user.org_id, db)
     comparison = await memento.generate_delta_comparison(db, assessment_id, caller_org_id=current_user.org_id)
     return comparison
+
+class ExplainScoreRequest(BaseModel):
+    code_metrics: Optional[Dict[str, Any]] = None
+    tech_scores: Optional[List[Dict[str, Any]]] = None
+    risk_findings: Optional[List[Dict[str, Any]]] = None
+    code_findings: Optional[List[Dict[str, Any]]] = None
+    hourly_rate: float = 100.0
+
+@router.post("/explain-score")
+def explain_debt_score(
+    req: ExplainScoreRequest,
+    current_user: User = Depends(get_current_user)
+):
+    return CommercialDebtScoringEngine.explain_debt_score(
+        code_metrics=req.code_metrics,
+        tech_scores=req.tech_scores,
+        risk_findings=req.risk_findings,
+        code_findings=req.code_findings,
+        hourly_rate=req.hourly_rate
+    )
+
+@router.get("/{assessment_id}/debt-breakdown")
+def get_assessment_debt_breakdown(
+    assessment_id: str,
+    hourly_rate: float = 100.0,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    assessment = (
+        db.query(Assessment)
+        .join(Project)
+        .filter(Assessment.id == assessment_id, Project.org_id == current_user.org_id)
+        .first()
+    )
+    if not assessment:
+        raise HTTPException(status_code=404, detail="Assessment not found or unauthorized")
+
+    # Extract stored metrics from assessment raw_output
+    raw = assessment.raw_output or {}
+    code_metrics = raw.get("code_metrics", {
+        "lines_of_code": assessment.lines_of_code or 0,
+        "files_analyzed": assessment.files_analyzed or 0
+    })
+
+    # Tech scores list
+    tech_scores = [
+        {
+            "maintenance_health": s.maintenance_health,
+            "version_currency": s.version_currency,
+            "security_exposure": s.security_exposure,
+            "documentation_quality": s.documentation_quality
+        }
+        for s in assessment.scores
+    ]
+
+    # Risk findings
+    risk_findings = [
+        {
+            "severity": r.severity,
+            "title": r.title
+        }
+        for r in assessment.risks
+    ]
+
+    code_findings = raw.get("code_findings", [])
+
+    breakdown = CommercialDebtScoringEngine.explain_debt_score(
+        code_metrics=code_metrics,
+        tech_scores=tech_scores,
+        risk_findings=risk_findings,
+        code_findings=code_findings,
+        hourly_rate=hourly_rate
+    )
+    breakdown["assessment_id"] = assessment.id
+    breakdown["project_id"] = assessment.project_id
+    breakdown["project_name"] = assessment.project.name if assessment.project else ""
+    return breakdown
+

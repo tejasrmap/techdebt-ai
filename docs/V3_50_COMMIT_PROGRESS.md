@@ -315,8 +315,20 @@
 - **Tests Executed:** `pytest backend/tests/test_vulnerability_and_licenses.py`.
 - **Test Results:** 4 passed, 0 failed.
 - **Documentation Updated:** `docs/V3_50_COMMIT_PROGRESS.md`.
-- **Commit Hash:** `1189f76`.
+- **Commit Hash:** `adbee0b`.
 - **Remaining Issues:** Proceed to Commit 24 (Explainable technical debt scoring).
+
+### COMMIT 24
+- **Title:** `feat: implement explainable technical debt scoring`
+- **Scope:** Transparent 5-pillar technical debt scoring engine (Architecture & Structural, Security & Vulnerability, Code Maintainability, Dependency Currency, Testing & Reliability), positive contributors and penalty attribution factors, financial remediation liability estimation ($ USD), executive debt narrative, and breakdown API endpoints.
+- **Files Changed:** `backend/app/services/debt_scoring_engine.py`, `backend/app/api/v1/assessments.py`, `backend/tests/test_explainable_scoring.py`, `docs/V3_50_COMMIT_PROGRESS.md`.
+- **Implementation Summary:** Extended `CommercialDebtScoringEngine` with `explain_debt_score` method rolling up 10 detailed dimensions into 5 core enterprise pillars, quantifying positive vs negative factors, estimating engineering remediation hours and dollar financial cost at customizable blended rates. Added `POST /api/v1/assessments/explain-score` and `GET /api/v1/assessments/{assessment_id}/debt-breakdown` endpoints. Added 2 comprehensive unit/integration tests verifying pillar calculations, financial projections, and API responses.
+- **Tests Executed:** `pytest backend/tests/test_explainable_scoring.py`.
+- **Test Results:** 2 passed, 0 failed.
+- **Documentation Updated:** `docs/V3_50_COMMIT_PROGRESS.md`.
+- **Commit Hash:** `3842d0f`.
+- **Remaining Issues:** Proceed to Commit 25 (Technical debt history and remediation tracking).
+
 
 
 
