@@ -293,5 +293,22 @@ async def test_ai_provider(
         "fallback_used": resp.fallback_used
     }
 
+class PromptInspectionRequest(BaseModel):
+    text: str
+    mode: str = "STRICT"  # STRICT, SANITIZE, PERMISSIVE
+
+@router.post("/prompt-defense/inspect")
+def inspect_prompt(
+    req: PromptInspectionRequest,
+    current_user: User = Depends(get_current_user)
+):
+    from app.services.prompt_defense_service import PromptDefenseService
+    result = PromptDefenseService.inspect_input(req.text, mode=req.mode.upper())
+    fenced_example, boundary_nonce = PromptDefenseService.wrap_untrusted_input(req.text)
+    result["fenced_example"] = fenced_example
+    result["boundary_nonce"] = boundary_nonce
+    return result
+
+
 
 

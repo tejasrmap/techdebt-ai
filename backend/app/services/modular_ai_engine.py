@@ -312,12 +312,23 @@ class ModularAIEngine:
         prompt: str,
         system_prompt: Optional[str] = None,
         output_schema: Optional[Type[BaseModel]] = None,
-        preferred_provider: Optional[str] = None
+        preferred_provider: Optional[str] = None,
+        strict_defense: bool = False
     ) -> LLMResponse:
         """
-        Executes completion with automatic cascading fallback:
+        Executes completion with automatic cascading fallback and prompt injection defenses:
         Preferred / Default -> Other configured cloud providers -> Deterministic Fallback.
         """
+        from app.services.prompt_defense_service import PromptDefenseService
+
+        # 1. Defend Input Prompt
+        defense_inspection = PromptDefenseService.inspect_input(
+            prompt, mode="STRICT" if strict_defense else "SANITIZE"
+        )
+        if not defense_inspection["is_safe"]:
+            raise ValueError(f"Prompt injection threat blocked: {', '.join(defense_inspection['detected_threats'])}")
+        effective_prompt = defense_inspection["sanitized_text"]
+
         # Determine trial order
         candidates = []
         if preferred_provider and preferred_provider.lower() in self.providers:
@@ -336,10 +347,14 @@ class ModularAIEngine:
                 continue
 
             try:
-                res = await provider.generate_text(prompt=prompt, system_prompt=system_prompt)
+                res = await provider.generate_text(prompt=effective_prompt, system_prompt=system_prompt)
                 if p_name != candidates[0]:
                     res.fallback_used = True
                 
+                # Sanitize output from credential leaks
+                out_check = PromptDefenseService.inspect_output(res.content)
+                res.content = out_check["sanitized_output"]
+
                 # If output schema requested, validate JSON
                 if output_schema:
                     try:
@@ -360,7 +375,10 @@ class ModularAIEngine:
                 last_error = e
 
         # If everything somehow failed, invoke deterministic directly
-        return await self.providers["deterministic"].generate_text(prompt, system_prompt)
+        det_res = await self.providers["deterministic"].generate_text(effective_prompt, system_prompt)
+        out_check = PromptDefenseService.inspect_output(det_res.content)
+        det_res.content = out_check["sanitized_output"]
+        return det_res
 
     async def get_providers_status(self) -> Dict[str, Any]:
         statuses = {}
