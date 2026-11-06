@@ -260,4 +260,38 @@ def get_project_security_audit(
     audit_result["project_name"] = project.name
     return audit_result
 
+class AIProviderTestRequest(BaseModel):
+    provider: Optional[str] = None
+    prompt: Optional[str] = "Evaluate technical debt architecture"
+    force_fallback: bool = False
+
+@router.get("/ai-providers")
+async def get_ai_providers_status(
+    current_user: User = Depends(get_current_user)
+):
+    from app.services.modular_ai_engine import modular_ai_engine
+    return await modular_ai_engine.get_providers_status()
+
+@router.post("/ai-providers/test")
+async def test_ai_provider(
+    req: AIProviderTestRequest,
+    current_user: User = Depends(get_current_user)
+):
+    from app.services.modular_ai_engine import modular_ai_engine
+    preferred = "deterministic" if req.force_fallback else req.provider
+    resp = await modular_ai_engine.generate_completion(
+        prompt=req.prompt or "Provide a software engineering architecture recommendation.",
+        preferred_provider=preferred
+    )
+    return {
+        "status": "success",
+        "provider": resp.provider,
+        "model": resp.model,
+        "content_length": len(resp.content),
+        "content_preview": resp.content[:200],
+        "latency_ms": resp.latency_ms,
+        "fallback_used": resp.fallback_used
+    }
+
+
 

@@ -49,6 +49,7 @@ class Settings(BaseModel):
     # AI Providers
     OPENAI_API_KEY: Optional[str] = ""
     GEMINI_API_KEY: Optional[str] = ""
+    ANTHROPIC_API_KEY: Optional[str] = ""
     DEFAULT_AI_PROVIDER: str = "gemini"
     AI_MODEL_NAME: str = "gemini-1.5-flash"
     AI_TEMPERATURE: float = 0.2
@@ -73,6 +74,7 @@ class Settings(BaseModel):
         values.setdefault("ENCRYPTION_KEY", os.getenv("ENCRYPTION_KEY", ""))
         values.setdefault("OPENAI_API_KEY", os.getenv("OPENAI_API_KEY", ""))
         values.setdefault("GEMINI_API_KEY", os.getenv("GEMINI_API_KEY", ""))
+        values.setdefault("ANTHROPIC_API_KEY", os.getenv("ANTHROPIC_API_KEY", ""))
         values.setdefault("DEFAULT_AI_PROVIDER", os.getenv("DEFAULT_AI_PROVIDER", "gemini"))
         values.setdefault("AI_MODEL_NAME", os.getenv("AI_MODEL_NAME", "gemini-1.5-flash"))
         values.setdefault("AI_TEMPERATURE", float(os.getenv("AI_TEMPERATURE", "0.2")))
