@@ -1,0 +1,76 @@
+name: TechDebt AI CI/CD Pipeline
+
+on:
+  push:
+    branches: [ main, release/* ]
+  pull_request:
+    branches: [ main, release/* ]
+
+jobs:
+  backend-test:
+    name: Backend Tests & Security Checks
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:15-alpine
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: testpassword123
+          POSTGRES_DB: techdebt_test_disposable
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.10'
+          cache: 'pip'
+
+      - name: Install Backend Dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r backend/requirements.txt
+
+      - name: Run Backend Unit & Integration Tests
+        env:
+          DATABASE_URL: sqlite:///./test_ci.db
+          POSTGRES_TEST_DATABASE_URL: postgresql://postgres:testpassword123@localhost:5432/techdebt_test_disposable
+          SECRET_KEY: test-ci-super-secret-key-for-automated-pipeline-only-32b
+          ENCRYPTION_KEY: dGVzdC1lbmNyeXB0aW9uLWtleS1mb3ItY2ktMDEyMzQ1Njc=
+          ENVIRONMENT: test
+          PYTHONPATH: backend
+        run: |
+          pytest backend/tests
+
+  frontend-test:
+    name: Frontend Tests & Production Build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install Frontend Dependencies
+        working-directory: ./frontend
+        run: npm ci
+
+      - name: Run Frontend Tests
+        working-directory: ./frontend
+        run: npm run test
+
+      - name: Build Frontend Production Bundle
+        working-directory: ./frontend
+        run: npm run build
