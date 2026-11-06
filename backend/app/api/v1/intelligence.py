@@ -412,6 +412,57 @@ async def get_assistant_recommendations(
     recs["project_id"] = project.id
     return recs
 
+class ArchitectureReviewRequest(BaseModel):
+    files: List[str]
+    code_findings: Optional[List[Dict[str, Any]]] = None
+    code_metrics: Optional[Dict[str, Any]] = None
+
+@router.post("/architecture-review")
+def review_architecture(
+    req: ArchitectureReviewRequest,
+    current_user: User = Depends(get_current_user)
+):
+    from app.services.architecture_review_engine import ArchitectureReviewEngine
+    return ArchitectureReviewEngine.analyze_architecture(
+        files=req.files,
+        code_findings=req.code_findings,
+        code_metrics=req.code_metrics
+    )
+
+@router.get("/project/{project_id}/architecture-review")
+def get_project_architecture_review(
+    project_id: str,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    project = db.query(Project).filter(Project.id == project_id, Project.org_id == current_user.org_id).first()
+    if not project:
+        raise HTTPException(status_code=404, detail="Project not found or unauthorized")
+
+    from app.services.architecture_review_engine import ArchitectureReviewEngine
+    from app.models.all_models import Assessment
+
+    latest_asmt = (
+        db.query(Assessment)
+        .filter(Assessment.project_id == project.id, Assessment.status == "completed")
+        .order_by(Assessment.created_at.desc())
+        .first()
+    )
+    raw = latest_asmt.raw_output if latest_asmt and latest_asmt.raw_output else {}
+    files = raw.get("analyzed_files", ["src/api/routes.py", "src/services/app.py", "src/models/user.py"])
+    code_findings = raw.get("code_findings", [])
+    code_metrics = raw.get("code_metrics", {})
+
+    review = ArchitectureReviewEngine.analyze_architecture(
+        files=files,
+        code_findings=code_findings,
+        code_metrics=code_metrics
+    )
+    review["project_id"] = project.id
+    review["project_name"] = project.name
+    return review
+
+
 
 
 
