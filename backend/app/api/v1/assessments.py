@@ -19,11 +19,22 @@ async def run_assessment(req: AssessmentRunRequest, current_user: User = Depends
     if not project:
         raise HTTPException(status_code=404, detail="Project not found or unauthorized")
 
+    # 2. Enforce monthly assessments quota
+    from app.services.billing_service import BillingService
+    allowed, limit, current = BillingService.check_entitlement(db, current_user.org_id, "monthly_assessments")
+    if not allowed:
+        raise HTTPException(
+            status_code=status.HTTP_402_PAYMENT_REQUIRED if hasattr(status, "HTTP_402_PAYMENT_REQUIRED") else 402,
+            detail=f"Monthly assessment limit reached for your plan ({current}/{limit}). Please upgrade your subscription."
+        )
+
     assessment = await execute_project_review(
         project_id=req.project_id,
         trigger_type=req.trigger_type or "manual",
         db_session=db
     )
+
+    BillingService.record_usage(db, current_user.org_id, "monthly_assessments", 1.0)
 
     audit = AuditLog(
         user_id=current_user.id,

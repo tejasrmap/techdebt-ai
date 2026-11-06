@@ -327,6 +327,14 @@ async def assistant_chat(
     if not project:
         raise HTTPException(status_code=404, detail="Project not found or unauthorized")
 
+    from app.services.billing_service import BillingService
+    allowed, _, _ = BillingService.check_entitlement(db, current_user.org_id, "ai_recommendations")
+    if not allowed:
+        raise HTTPException(
+            status_code=status.HTTP_402_PAYMENT_REQUIRED if hasattr(status, "HTTP_402_PAYMENT_REQUIRED") else 402,
+            detail="AI Assistant and refactoring recommendations require a Team Starter or higher subscription plan."
+        )
+
     from app.services.ai_engineering_assistant import AIEngineeringAssistant
     from app.models.all_models import Assessment, RiskFinding, ProjectTechnology, Technology
 
@@ -393,6 +401,14 @@ async def get_assistant_recommendations(
     project = db.query(Project).filter(Project.id == req.project_id, Project.org_id == current_user.org_id).first()
     if not project:
         raise HTTPException(status_code=404, detail="Project not found or unauthorized")
+
+    from app.services.billing_service import BillingService
+    allowed, _, _ = BillingService.check_entitlement(db, current_user.org_id, "ai_recommendations")
+    if not allowed:
+        raise HTTPException(
+            status_code=status.HTTP_402_PAYMENT_REQUIRED if hasattr(status, "HTTP_402_PAYMENT_REQUIRED") else 402,
+            detail="AI Assistant and refactoring recommendations require a Team Starter or higher subscription plan."
+        )
 
     from app.services.ai_engineering_assistant import AIEngineeringAssistant
     from app.models.all_models import Assessment, ProjectTechnology, Technology

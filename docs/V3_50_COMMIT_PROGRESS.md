@@ -403,8 +403,20 @@
 - **Tests Executed:** `pytest backend/tests/test_subscription_tiers_and_quotas.py`.
 - **Test Results:** 3 passed, 0 failed.
 - **Documentation Updated:** `docs/V3_50_COMMIT_PROGRESS.md`.
-- **Commit Hash:** `f45aa2c`.
+- **Commit Hash:** `bceb190`.
 - **Remaining Issues:** Proceed to Commit 32 (Server side quota enforcement across all endpoints).
+
+### COMMIT 32
+- **Title:** `feat: implement server side quota enforcement across all endpoints`
+- **Scope:** Strict server-side quota enforcement across mutating endpoints: project limits on `POST /projects`, monthly assessment limits on `POST /assessments/run`, team seat quotas on `POST /auth/invitations` and `POST /teams/{id}/members`, and AI capability gating on `POST /intelligence/assistant/*`.
+- **Files Changed:** `backend/app/api/v1/assessments.py`, `backend/app/api/v1/auth.py`, `backend/app/api/v1/intelligence.py`, `backend/tests/test_server_side_quota_enforcement.py`, `docs/V3_50_COMMIT_PROGRESS.md`.
+- **Implementation Summary:** Integrated `BillingService.check_entitlement` into assessment execution, member invitations, and AI assistant chat. Protected against quota bypasses by returning HTTP 402 Payment Required with clear upgrade directives whenever tier limits are exceeded. Added 4 unit and integration tests verifying project, assessment, team, and AI quota enforcements.
+- **Tests Executed:** `pytest backend/tests/test_server_side_quota_enforcement.py`.
+- **Test Results:** 4 passed, 0 failed.
+- **Documentation Updated:** `docs/V3_50_COMMIT_PROGRESS.md`.
+- **Commit Hash:** `5bab4f5`.
+- **Remaining Issues:** Proceed to Commit 33 (Stripe checkout and customer portal integration).
+
 
 
 

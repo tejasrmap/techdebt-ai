@@ -213,6 +213,15 @@ def create_invitation(
             detail="Only Owners, Administrators and Engineering Managers can issue invitations."
         )
 
+    # Enforce team seat entitlement
+    from app.services.billing_service import BillingService
+    allowed, limit, current = BillingService.check_entitlement(db, current_user.org_id, "team_members")
+    if not allowed:
+        raise HTTPException(
+            status_code=status.HTTP_402_PAYMENT_REQUIRED if hasattr(status, "HTTP_402_PAYMENT_REQUIRED") else 402,
+            detail=f"Team member seat limit reached for your plan ({current}/{limit}). Please upgrade your subscription."
+        )
+
     # Check if user already exists
     existing_user = db.query(User).filter(User.email == req.email.lower()).first()
     if existing_user:
