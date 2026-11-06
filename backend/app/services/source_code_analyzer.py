@@ -116,6 +116,10 @@ class SourceCodeAnalyzer:
             comp, py_findings = self._analyze_python(file_path, content, lines)
             complexity = max(complexity, comp)
             raw_findings.extend(py_findings)
+        elif lang in ("javascript", "typescript"):
+            comp, js_findings = self._analyze_javascript_typescript(file_path, content, lines, lang)
+            complexity = max(complexity, comp)
+            raw_findings.extend(js_findings)
         else:
             comp, gen_findings = self._analyze_generic_code(file_path, content, lines, lang)
             complexity = max(complexity, comp)
@@ -188,6 +192,10 @@ class SourceCodeAnalyzer:
                 comp, py_findings = self._analyze_python(rel_path, content, lines)
                 complexity = max(complexity, comp)
                 file_findings.extend(py_findings)
+            elif lang in ("javascript", "typescript"):
+                comp, js_findings = self._analyze_javascript_typescript(rel_path, content, lines, lang)
+                complexity = max(complexity, comp)
+                file_findings.extend(js_findings)
             else:
                 comp, generic_findings = self._analyze_generic_code(rel_path, content, lines, lang)
                 complexity = max(complexity, comp)
@@ -574,6 +582,253 @@ class SourceCodeAnalyzer:
                 })
 
         return max_file_complexity, findings
+
+    # =========================================================================
+    # JavaScript & TypeScript Analysis
+    # =========================================================================
+
+    def _analyze_javascript_typescript(self, rel_path: str, content: str, lines: List[str], lang: str) -> Tuple[int, List[Dict[str, Any]]]:
+        findings: List[Dict[str, Any]] = []
+        loc = len(lines)
+        is_ts = lang == "typescript" or rel_path.endswith((".ts", ".tsx"))
+
+        # 1. File Length
+        if loc > 600:
+            findings.append({
+                "file_path": rel_path,
+                "line_start": 1,
+                "line_end": loc,
+                "rule_id": "FILE_EXCESSIVE_LENGTH",
+                "category": "maintainability",
+                "severity": "Medium",
+                "confidence": "High",
+                "title": f"Excessive file length ({loc} lines)",
+                "explanation": f"Source file spans {loc} lines (recommended maximum: 600 lines).",
+                "technical_evidence": f"Total LOC: {loc}",
+                "why_it_matters": "Monolithic files decrease comprehension and increase defect rates.",
+                "recommended_remediation": "Decompose into reusable modules or custom hooks.",
+                "estimated_remediation_hours": round(loc / 250, 1),
+                "is_auto_verifiable": True
+            })
+
+        # 2. Bracket Nesting & Branch Counting
+        max_nesting = 0
+        current_nesting = 0
+        deep_nesting_line = 0
+        branch_count = 1
+        branch_keywords = {"if", "else if", "case", "for", "while", "catch", "&&", "||", "switch"}
+
+        for idx, line in enumerate(lines, start=1):
+            trimmed = line.strip()
+
+            # Check compiler directives even within comments
+            if is_ts and ("@ts-ignore" in trimmed or "@ts-nocheck" in trimmed):
+                findings.append({
+                    "file_path": rel_path,
+                    "line_start": idx,
+                    "line_end": idx,
+                    "rule_id": "TS_IGNORE_DIRECTIVE",
+                    "category": "maintainability",
+                    "severity": "Low",
+                    "confidence": "High",
+                    "title": "Compiler type check suppression directive (@ts-ignore / @ts-nocheck)",
+                    "explanation": "Suppression directives mask type errors without addressing underlying type mismatches.",
+                    "technical_evidence": f"Line {idx}: {trimmed[:80]}",
+                    "why_it_matters": "Accumulating type suppression directives defeats TypeScript adoption benefits.",
+                    "recommended_remediation": "Resolve underlying type incompatibility or use type narrowing.",
+                    "estimated_remediation_hours": 0.25,
+                    "is_auto_verifiable": True
+                })
+
+            # Skip pure comment lines for code syntax analysis
+            if trimmed.startswith(("//", "/*", "*")):
+                continue
+
+            open_b = line.count("{") - line.count("}")
+            current_nesting = max(0, current_nesting + open_b)
+            if current_nesting > max_nesting:
+                max_nesting = current_nesting
+                deep_nesting_line = idx
+
+            for kw in branch_keywords:
+                if re.search(r'\b' + re.escape(kw) + r'\b', trimmed):
+                    branch_count += 1
+
+            # 3. Loose Equality
+            if re.search(r'(?<![!=<>])==(?![=])', trimmed) or re.search(r'(?<![!])!=(?![=])', trimmed):
+                findings.append({
+                    "file_path": rel_path,
+                    "line_start": idx,
+                    "line_end": idx,
+                    "rule_id": "JS_LOOSE_EQUALITY",
+                    "category": "reliability",
+                    "severity": "Medium",
+                    "confidence": "High",
+                    "title": "Loose equality operator ('==' or '!=') detected",
+                    "explanation": "Using loose equality invokes JavaScript type coercion, causing subtle equality bugs.",
+                    "technical_evidence": f"Line {idx}: {trimmed[:80]}",
+                    "why_it_matters": "Type coercion in loose equality creates unexpected falsy/truthy matches and bugs.",
+                    "recommended_remediation": "Use strict equality ('===' and '!==').",
+                    "estimated_remediation_hours": 0.25,
+                    "is_auto_verifiable": True
+                })
+
+            # 4. Dangerous DOM XSS
+            if re.search(r'\b(?:innerHTML|outerHTML)\s*=|document\.write\s*\(|dangerouslySetInnerHTML', trimmed):
+                findings.append({
+                    "file_path": rel_path,
+                    "line_start": idx,
+                    "line_end": idx,
+                    "rule_id": "JS_DANGEROUS_DOM_XSS",
+                    "category": "security",
+                    "severity": "Critical",
+                    "confidence": "High",
+                    "title": "Dangerous unescaped DOM insertion (Cross-Site Scripting)",
+                    "explanation": "Directly assigning innerHTML or using dangerouslySetInnerHTML can execute injected scripts.",
+                    "technical_evidence": f"Line {idx}: {trimmed[:80]}",
+                    "why_it_matters": "DOM-based XSS allows attackers to hijack user sessions and execute arbitrary scripts.",
+                    "recommended_remediation": "Use textContent, safe React JSX interpolation, or sanitize with DOMPurify.",
+                    "estimated_remediation_hours": 1.5,
+                    "is_auto_verifiable": True
+                })
+
+            # 5. Dynamic Eval & Execution
+            if re.search(r'\beval\s*\(|new\s+Function\s*\(|setTimeout\s*\(\s*[\'"`]|setInterval\s*\(\s*[\'"`]', trimmed):
+                findings.append({
+                    "file_path": rel_path,
+                    "line_start": idx,
+                    "line_end": idx,
+                    "rule_id": "JS_DANGEROUS_EVAL",
+                    "category": "security",
+                    "severity": "Critical",
+                    "confidence": "High",
+                    "title": "Dynamic code execution via eval() or new Function()",
+                    "explanation": "Evaluating dynamic string code at runtime exposes the application to arbitrary code execution.",
+                    "technical_evidence": f"Line {idx}: {trimmed[:80]}",
+                    "why_it_matters": "Bypasses Content Security Policy and gives untrusted inputs script execution privileges.",
+                    "recommended_remediation": "Replace dynamic code execution with static function dispatch.",
+                    "estimated_remediation_hours": 1.0,
+                    "is_auto_verifiable": True
+                })
+
+            # 6. Prototype Pollution
+            if "__proto__" in trimmed or "prototype[" in trimmed:
+                findings.append({
+                    "file_path": rel_path,
+                    "line_start": idx,
+                    "line_end": idx,
+                    "rule_id": "JS_PROTOTYPE_POLLUTION",
+                    "category": "security",
+                    "severity": "High",
+                    "confidence": "Medium",
+                    "title": "Potential prototype pollution vulnerability",
+                    "explanation": "Direct property assignment to '__proto__' or dynamic prototype modifies global Object prototypes.",
+                    "technical_evidence": f"Line {idx}: {trimmed[:80]}",
+                    "why_it_matters": "Prototype pollution can alter object properties globally and enable privilege escalation.",
+                    "recommended_remediation": "Freeze prototypes or use Map / Object.create(null) for keyed collections.",
+                    "estimated_remediation_hours": 1.0,
+                    "is_auto_verifiable": True
+                })
+
+            # 7. Empty Catch Block
+            if re.search(r'catch\s*(?:\([^)]*\))?\s*\{\s*\}', trimmed):
+                findings.append({
+                    "file_path": rel_path,
+                    "line_start": idx,
+                    "line_end": idx,
+                    "rule_id": "JS_EMPTY_CATCH_BLOCK",
+                    "category": "reliability",
+                    "severity": "Medium",
+                    "confidence": "High",
+                    "title": "Silent empty catch block swallows runtime errors",
+                    "explanation": "Catch block with an empty body silently ignores exceptions.",
+                    "technical_evidence": f"Line {idx}: {trimmed[:80]}",
+                    "why_it_matters": "Swallowed errors leave the application in an indeterminate state and conceal bugs.",
+                    "recommended_remediation": "Log the error, rethrow, or present a user-facing error message.",
+                    "estimated_remediation_hours": 0.5,
+                    "is_auto_verifiable": True
+                })
+
+            # 8. TypeScript Specific Anti-Patterns
+            if is_ts:
+                # Explicit any
+                if re.search(r':\s*any\b|\bas\s+any\b|<any>', trimmed):
+                    findings.append({
+                        "file_path": rel_path,
+                        "line_start": idx,
+                        "line_end": idx,
+                        "rule_id": "TS_EXPLICIT_ANY",
+                        "category": "maintainability",
+                        "severity": "Medium",
+                        "confidence": "High",
+                        "title": "Explicit 'any' type annotation weakens type safety",
+                        "explanation": "Using 'any' disables TypeScript compiler type verification and refactoring guarantees.",
+                        "technical_evidence": f"Line {idx}: {trimmed[:80]}",
+                        "why_it_matters": "Removes static type protection and leads to unexpected runtime TypeError exceptions.",
+                        "recommended_remediation": "Use specific domain interfaces, generics, or 'unknown' with type guards.",
+                        "estimated_remediation_hours": 0.5,
+                        "is_auto_verifiable": True
+                    })
+
+                # Non-null assertion
+                if re.search(r'[a-zA-Z0-9_$]+!\.[a-zA-Z0-9_$]+', trimmed):
+                    findings.append({
+                        "file_path": rel_path,
+                        "line_start": idx,
+                        "line_end": idx,
+                        "rule_id": "TS_NON_NULL_ASSERTION",
+                        "category": "reliability",
+                        "severity": "Low",
+                        "confidence": "Medium",
+                        "title": "Unsafe non-null assertion operator ('!.')",
+                        "explanation": "Bypassing null checking with '!.' will crash if value is null or undefined at runtime.",
+                        "technical_evidence": f"Line {idx}: {trimmed[:80]}",
+                        "why_it_matters": "Non-null assertions produce preventable Cannot read properties of undefined crashes.",
+                        "recommended_remediation": "Use optional chaining ('?.') or explicit null check guard clauses.",
+                        "estimated_remediation_hours": 0.25,
+                        "is_auto_verifiable": True
+                    })
+
+        # Check deep nesting
+        if max_nesting >= 5:
+            findings.append({
+                "file_path": rel_path,
+                "line_start": deep_nesting_line,
+                "line_end": deep_nesting_line,
+                "rule_id": "JS_DEEP_NESTING",
+                "category": "complexity",
+                "severity": "High" if max_nesting >= 7 else "Medium",
+                "confidence": "High",
+                "title": f"Excessive block nesting depth ({max_nesting} levels)",
+                "explanation": f"Code reaches nesting depth of {max_nesting} levels at line {deep_nesting_line} (threshold: 4 levels).",
+                "technical_evidence": f"Line {deep_nesting_line}: nesting level {max_nesting}",
+                "why_it_matters": "Deep block nesting ('callback/promise hell') causes high mental fatigue and logic defects.",
+                "recommended_remediation": "Flatten control flow using early returns, async/await, or helper methods.",
+                "estimated_remediation_hours": 1.0,
+                "is_auto_verifiable": True
+            })
+
+        # Cyclomatic complexity score for JS/TS
+        complexity_score = max(1, min(50, branch_count // 2))
+        if complexity_score > 12:
+            findings.append({
+                "file_path": rel_path,
+                "line_start": 1,
+                "line_end": loc,
+                "rule_id": "JS_HIGH_CYCLOMATIC_COMPLEXITY",
+                "category": "complexity",
+                "severity": "High" if complexity_score > 20 else "Medium",
+                "confidence": "High",
+                "title": f"High cyclomatic complexity ({complexity_score}) in module",
+                "explanation": f"Module contains {branch_count} branch points resulting in cyclomatic complexity score of {complexity_score}.",
+                "technical_evidence": f"{rel_path}: {branch_count} branch points detected",
+                "why_it_matters": "Modules with excessive complexity require disproportionately high testing effort.",
+                "recommended_remediation": "Extract complex branch trees into modular subroutines or state machines.",
+                "estimated_remediation_hours": round(complexity_score * 0.2, 1),
+                "is_auto_verifiable": True
+            })
+
+        return complexity_score, findings
 
     # =========================================================================
     # Generic Lexical & Structural Analysis (JS, TS, Java, Go, PHP, C#)

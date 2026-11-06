@@ -25,8 +25,8 @@
 | **13** | `feat: implement additional repository providers and ZIP uploads` | **COMPLETE** | `backend/app/services/bitbucket_service.py`, `backend/app/services/repository_ingestion_service.py`, `backend/app/api/v1/repositories.py`, `backend/tests/test_repository_providers_and_zip.py` | Pytest (test_repository_providers_and_zip) | PASS (8 passed) | `92359ce` |
 | **14** | `feat: implement secure asynchronous repository ingestion` | **COMPLETE** | `backend/app/services/repository_ingestion_service.py`, `backend/app/api/v1/repositories.py`, `backend/tests/test_async_ingestion.py` | Pytest (test_async_ingestion) | PASS (4 passed) | `c002f45` |
 | **15** | `feat: implement repository webhooks and incremental synchronization` | **COMPLETE** | `backend/app/api/v1/repositories.py`, `backend/tests/test_repository_webhooks.py` | Pytest (test_repository_webhooks) | PASS (5 passed) | `ff1ec4c` |
-| **16** | `feat: implement Python AST source analysis` | **COMPLETE** | `backend/app/services/source_code_analyzer.py`, `backend/tests/test_python_ast_analysis.py` | Pytest (test_python_ast_analysis) | PASS (5 passed) | Pending |
-| **17** | `feat: implement JavaScript and TypeScript source analysis` | Planned | - | - | - | - |
+| **16** | `feat: implement Python AST source analysis` | **COMPLETE** | `backend/app/services/source_code_analyzer.py`, `backend/tests/test_python_ast_analysis.py` | Pytest (test_python_ast_analysis) | PASS (5 passed) | `60e0e28` |
+| **17** | `feat: implement JavaScript and TypeScript source analysis` | **COMPLETE** | `backend/app/services/source_code_analyzer.py`, `backend/tests/test_javascript_typescript_analysis.py` | Pytest (test_javascript_typescript_analysis) | PASS (4 passed) | Pending |
 | **18** | `feat: implement Java and PHP source analysis` | Planned | - | - | - | - |
 | **19** | `feat: implement Go C sharp and C C++ analysis` | Planned | - | - | - | - |
 | **20** | `feat: implement unified source findings and quality engine` | Planned | - | - | - | - |
@@ -238,5 +238,16 @@
 - **Tests Executed:** `pytest backend/tests/test_python_ast_analysis.py`.
 - **Test Results:** 5 passed, 0 failed.
 - **Documentation Updated:** `docs/V3_50_COMMIT_PROGRESS.md`.
-- **Commit Hash:** Assigned upon commit.
+- **Commit Hash:** `60e0e28`.
 - **Remaining Issues:** Proceed to Commit 17 (JavaScript and TypeScript source analysis).
+
+### COMMIT 17
+- **Title:** `feat: implement JavaScript and TypeScript source analysis`
+- **Scope:** Static intelligence for JavaScript and TypeScript, loose equality detection, dangerous DOM XSS sinks, dynamic code execution (eval, Function), prototype pollution, empty catch blocks, TypeScript explicit any annotations, compiler suppression directives (@ts-ignore/@ts-nocheck), unsafe non-null assertions, and deep nesting.
+- **Files Changed:** `backend/app/services/source_code_analyzer.py`, `backend/tests/test_javascript_typescript_analysis.py`, `docs/V3_50_COMMIT_PROGRESS.md`.
+- **Implementation Summary:** Implemented dedicated `_analyze_javascript_typescript` in `SourceCodeAnalyzer`. Routed JS/TS files in both single-file and repository-wide analysis pipelines. Added pattern rules for `JS_LOOSE_EQUALITY`, `JS_DANGEROUS_DOM_XSS`, `JS_DANGEROUS_EVAL`, `JS_PROTOTYPE_POLLUTION`, `JS_EMPTY_CATCH_BLOCK`, `TS_EXPLICIT_ANY`, `TS_IGNORE_DIRECTIVE`, `TS_NON_NULL_ASSERTION`, and `JS_DEEP_NESTING`. Added 4 unit tests covering all rules.
+- **Tests Executed:** `pytest backend/tests/test_javascript_typescript_analysis.py`.
+- **Test Results:** 4 passed, 0 failed.
+- **Documentation Updated:** `docs/V3_50_COMMIT_PROGRESS.md`.
+- **Commit Hash:** Assigned upon commit.
+- **Remaining Issues:** Proceed to Commit 18 (Java and PHP source analysis).
