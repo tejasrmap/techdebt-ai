@@ -502,8 +502,19 @@
 - **Tests Executed:** `npm run test` (9 passed, 0 failed), `npm run build` (success).
 - **Test Results:** 9 passed, 0 failed.
 - **Documentation Updated:** `docs/V3_50_COMMIT_PROGRESS.md`.
-- **Commit Hash:** `2503dce`.
+- **Commit Hash:** `586dfd9`.
 - **Remaining Issues:** Milestone 8 complete (80% of roadmap achieved: 40/50 commits). Proceed to Milestone 9 (Commits 41–45: Database, Infrastructure and Reliability).
+
+### COMMIT 41
+- **Title:** `fix: secure PostgreSQL test database and migration architecture`
+- **Scope:** Hardened PostgreSQL test database validation safeguards, enterprise connection pooling parameters with pre-ping validation, and unbroken linear Alembic migration architecture up to revision 004.
+- **Files Changed:** `backend/alembic/versions/004_v3_ai_usage_ledgers_and_indexes.py`, `backend/app/database.py`, `backend/tests/test_postgresql_migration_and_isolation.py`, `docs/V3_50_COMMIT_PROGRESS.md`.
+- **Implementation Summary:** Implemented Alembic migration `004_v3_ai_usage_ledgers_and_indexes` creating `ai_usage_ledgers` table with composite and single-column indexes. Hardened database engine initialization in `app.database` to configure production connection pooling (`pool_size=20, max_overflow=10, pool_timeout=30, pool_recycle=1800, pool_pre_ping=True`) for PostgreSQL while maintaining non-locking WAL SQLite compatibility. Added 3 automated unit and integration tests verifying test URL safeguards against production databases, unbroken Alembic linear migration topology (`001` -> `002` -> `003` -> `004`), and engine pool configuration.
+- **Tests Executed:** `pytest backend/tests/test_postgresql_migration_and_isolation.py`.
+- **Test Results:** 3 passed, 0 failed.
+- **Documentation Updated:** `docs/V3_50_COMMIT_PROGRESS.md`.
+- **Commit Hash:** `95a6eb6`.
+- **Remaining Issues:** Proceed to Commit 42 (Harden scheduler leases transactions and concurrent execution).
 
 
 
