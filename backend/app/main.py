@@ -1,12 +1,16 @@
+import os
+import time
+import uuid
 import logging
 from contextlib import asynccontextmanager
-from fastapi import FastAPI, Request
+from fastapi import FastAPI, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from app.config import settings
 from app.database import engine, Base
 from app.api.v1 import api_v1_router
 from app.seed_data import seed
+from app.services.metrics_service import MetricsService
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(name)s: %(message)s")
 logger = logging.getLogger("techdebt_ai")
@@ -16,7 +20,6 @@ async def lifespan(app: FastAPI):
     # Startup: Run Alembic migrations programmatically
     logger.info("Verifying and applying Alembic database migrations...")
     try:
-        import os
         from alembic.config import Config
         from alembic import command
         base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -53,9 +56,34 @@ async def lifespan(app: FastAPI):
 app = FastAPI(
     title=settings.PROJECT_NAME,
     description="TechDebt AI – Commercial Software Engineering Intelligence and Technical Debt Platform.",
-    version="2.0.0",
+    version="3.0.0",
     lifespan=lifespan
 )
+
+# Request Observability & Logging Middleware
+@app.middleware("http")
+async def observability_middleware(request: Request, call_next):
+    request_id = request.headers.get("X-Request-ID") or f"req_{uuid.uuid4().hex[:12]}"
+    start_time = time.time()
+    response = await call_next(request)
+    duration = time.time() - start_time
+
+    response.headers["X-Request-ID"] = request_id
+    response.headers["X-Response-Time-Ms"] = f"{duration * 1000.0:.2f}"
+
+    if request.url.path != "/metrics":
+        MetricsService.record_request(
+            method=request.method,
+            endpoint=request.url.path,
+            status_code=response.status_code,
+            duration_seconds=duration
+        )
+
+    logger.info(
+        f"[{request_id}] {request.method} {request.url.path} -> "
+        f"{response.status_code} ({duration * 1000.0:.1f}ms)"
+    )
+    return response
 
 # Explicit CORS Origins (never wildcard in production)
 app.add_middleware(
@@ -63,7 +91,7 @@ app.add_middleware(
     allow_origins=settings.CORS_ORIGINS,
     allow_credentials=True,
     allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
-    allow_headers=["Authorization", "Content-Type", "Accept"],
+    allow_headers=["Authorization", "Content-Type", "Accept", "X-Request-ID"],
 )
 
 # Global Exception Handler
@@ -81,6 +109,12 @@ async def global_exception_handler(request: Request, exc: Exception):
 # Include v1 API router
 app.include_router(api_v1_router, prefix=settings.API_V1_STR)
 
+@app.get("/metrics", tags=["Observability"])
+def get_metrics():
+    """Prometheus exposition metrics endpoint for monitoring and observability."""
+    metrics_text = MetricsService.generate_prometheus_metrics()
+    return Response(content=metrics_text, media_type="text/plain; version=0.0.4; charset=utf-8")
+
 @app.get("/health", tags=["Health"])
 def health_check():
     return {
@@ -88,7 +122,16 @@ def health_check():
         "app": settings.PROJECT_NAME,
         "environment": settings.ENVIRONMENT,
         "api_version": "v1",
-        "version": "2.0.0"
+        "version": "3.0.0"
+    }
+
+@app.get("/live", tags=["Health"])
+def liveness_check():
+    """Kubernetes liveness probe verifying process responsiveness."""
+    return {
+        "status": "alive",
+        "uptime_seconds": round(MetricsService.get_uptime_seconds(), 2),
+        "version": "3.0.0"
     }
 
 @app.get("/ready", tags=["Health"])
@@ -100,7 +143,11 @@ def readiness_check():
         db = SessionLocal()
         db.execute(text("SELECT 1"))
         db.close()
-        return {"status": "ready", "database": "connected", "version": "2.0.0"}
+        return {
+            "status": "ready",
+            "database": "connected",
+            "version": "3.0.0"
+        }
     except Exception as e:
         return JSONResponse(status_code=503, content={"status": "not_ready", "database_error": str(e)})
 
@@ -111,5 +158,6 @@ def root():
         "docs_url": "/docs",
         "health_check": "/health",
         "readiness_check": "/ready",
-        "version": "2.0.0"
+        "metrics_url": "/metrics",
+        "version": "3.0.0"
     }
