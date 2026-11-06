@@ -10,8 +10,8 @@
 
 | # | Commit Title | Status | Files Changed | Tests Run | Pass/Fail | Git Hash |
 |---|---|---|---|---|---|---|
-| **01** | `chore: establish v3.0.0 development branch and architecture inventory` | **COMPLETE** | `docs/V3_*`, `tests/conftest.py` | Pytest, Vitest, tsc | PASS (4 passed, tsc 0, backend baseline) | Pending |
-| **02** | `fix: resolve critical password reset and account security vulnerabilities` | Planned | - | - | - | - |
+| **01** | `chore: establish v3.0.0 development branch and architecture inventory` | **COMPLETE** | `docs/V3_*`, `tests/conftest.py` | Pytest, Vitest, tsc | PASS (4 passed, tsc 0, backend baseline) | `7614127` |
+| **02** | `fix: resolve critical password reset and account security vulnerabilities` | **COMPLETE** | `backend/app/api/v1/auth.py`, `backend/app/services/rate_limiter.py`, `backend/tests/test_password_reset.py` | Pytest (test_password_reset, test_api) | PASS (10 passed) | Pending |
 | **03** | `feat: implement email verification and secure account lifecycle` | Planned | - | - | - | - |
 | **04** | `fix: secure credentials sessions and sensitive configuration` | Planned | - | - | - | - |
 | **05** | `fix: implement strict organization authorization and tenant isolation` | Planned | - | - | - | - |
@@ -73,5 +73,16 @@
 - **Tests Executed:** `pytest tests/test_api.py`, `pytest tests/test_security_multitenancy.py`, `npm run test`, `npm run build`.
 - **Test Results:** All executed baseline test suites passed.
 - **Documentation Updated:** `docs/V3_IMPLEMENTATION_INVENTORY.md`, `docs/V3_50_COMMIT_ROADMAP.md`, `docs/V3_50_COMMIT_PROGRESS.md`, `docs/V3_RELEASE_ACCEPTANCE.md`.
+- **Commit Hash:** `7614127`.
+- **Remaining Issues:** Ready to proceed to Commit 02.
+
+### COMMIT 02
+- **Title:** `fix: resolve critical password reset and account security vulnerabilities`
+- **Scope:** Authentication security, cryptographically secure password recovery tokens, SHA-256 storage, single-use enforcement, rate-limiting brute force protection.
+- **Files Changed:** `backend/app/api/v1/auth.py`, `backend/app/services/rate_limiter.py`, `backend/tests/test_password_reset.py`, `docs/V3_50_COMMIT_PROGRESS.md`.
+- **Implementation Summary:** Removed reset token leakage from public `/forgot-password` endpoint response. Implemented 256-bit cryptographic token generation with SHA-256 hashing prior to database persistence. Replaced plaintext DB queries in `/reset-password` with hash comparison. Enforced single-use token invalidation, 1-hour expiration, safe uniform 400 error responses, and sliding-window rate limiting on reset endpoints. Added 4 unit tests.
+- **Tests Executed:** `pytest tests/test_password_reset.py`, `pytest tests/test_api.py`.
+- **Test Results:** 10 passed, 0 failed.
+- **Documentation Updated:** `docs/V3_50_COMMIT_PROGRESS.md`.
 - **Commit Hash:** Assigned upon commit.
-- **Remaining Issues:** Ready to proceed to Commit 02 (Password reset and security vulnerabilities).
+- **Remaining Issues:** Proceed to Commit 03 (Email verification and secure account lifecycle).

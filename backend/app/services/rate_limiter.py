@@ -8,10 +8,13 @@ class InMemoryRateLimiter:
         # Maps bucket_key -> list of request timestamps
         self.buckets: Dict[str, List[float]] = defaultdict(list)
 
-    def check_rate_limit(self, request: Request, max_requests: int = 60, window_seconds: int = 60) -> None:
-        client_ip = request.client.host if request.client else "unknown"
-        path = request.url.path
-        key = f"{client_ip}:{path}"
+    def check_rate_limit(self, request_or_key, max_requests: int = 60, window_seconds: int = 60) -> None:
+        if isinstance(request_or_key, str):
+            key = request_or_key
+        else:
+            client_ip = request_or_key.client.host if request_or_key.client else "unknown"
+            path = request_or_key.url.path
+            key = f"{client_ip}:{path}"
 
         now = time.time()
         # Clean timestamps older than window

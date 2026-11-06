@@ -1,4 +1,6 @@
 from datetime import datetime, timedelta
+import hashlib
+import secrets
 from typing import List, Optional
 from fastapi import APIRouter, Depends, HTTPException, status, Request
 from fastapi.security import OAuth2PasswordBearer
@@ -15,7 +17,7 @@ from app.services.auth_service import (
     require_roles, generate_invitation_token, hash_invitation_token,
     cleanup_expired_revoked_tokens
 )
-from app.services.rate_limiter import rate_limit_auth
+from app.services.rate_limiter import rate_limit_auth, rate_limiter
 
 router = APIRouter(prefix="/auth", tags=["Authentication"])
 
@@ -433,35 +435,61 @@ def resend_verification(current_user: User = Depends(get_current_user), db: Sess
 
 @router.post("/forgot-password")
 def forgot_password(req: ForgotPasswordRequest, request: Request, db: Session = Depends(get_db)):
-    """Initiates a secure password reset flow."""
-    rate_limit_auth(request)
+    """
+    Initiates a secure password reset flow.
+    - Rate limited against brute-force enumeration.
+    - Generates a cryptographically strong 256-bit token.
+    - Stores only the SHA-256 hash in the database.
+    - Strictly never returns the plaintext token in the public API response.
+    """
+    client_ip = request.client.host if request.client else "unknown"
+    rate_limiter.check_rate_limit(f"forgot_pwd:{client_ip}", max_requests=5, window_seconds=300)
+    
     user = db.query(User).filter(User.email == req.email.lower()).first()
-    # Always return success message to prevent user enumeration
-    if not user:
-        return {"message": "If this email exists in our system, a password reset link has been dispatched."}
+    # Always return a constant, generic response to prevent user enumeration
+    if user:
+        raw_token = secrets.token_urlsafe(32)
+        token_hash = hashlib.sha256(raw_token.encode("utf-8")).hexdigest()
+        user.reset_password_token = token_hash
+        user.reset_password_token_expires_at = datetime.utcnow() + timedelta(hours=1)
+        db.commit()
 
-    token = secrets.token_urlsafe(32)
-    user.reset_password_token = token
-    user.reset_password_token_expires_at = datetime.utcnow() + timedelta(hours=1)
-    db.commit()
     return {
-        "message": "If this email exists in our system, a password reset link has been dispatched.",
-        "reset_token": token # Delivered for API/UI direct use in dev/sandbox
+        "message": "If this email exists in our system, a password reset link has been dispatched."
     }
 
 @router.post("/reset-password")
 def reset_password(req: ResetPasswordRequest, request: Request, db: Session = Depends(get_db)):
-    """Resets password using a valid reset token."""
-    rate_limit_auth(request)
-    user = db.query(User).filter(User.reset_password_token == req.token).first()
+    """
+    Resets password using a cryptographically secure, single-use reset token.
+    - Validates token against SHA-256 hash in database.
+    - Enforces 1-hour expiration and single-use invalidation.
+    - Prevents token reuse.
+    - Returns safe, non-revealing error messages.
+    """
+    client_ip = request.client.host if request.client else "unknown"
+    rate_limiter.check_rate_limit(f"reset_pwd:{client_ip}", max_requests=10, window_seconds=300)
+
+    if not req.token or len(req.token.strip()) < 16:
+        raise HTTPException(status_code=400, detail="Invalid or expired password reset token")
+
+    token_hash = hashlib.sha256(req.token.strip().encode("utf-8")).hexdigest()
+    user = db.query(User).filter(User.reset_password_token == token_hash).first()
+
     if not user:
         raise HTTPException(status_code=400, detail="Invalid or expired password reset token")
-    if user.reset_password_token_expires_at and user.reset_password_token_expires_at < datetime.utcnow():
-        raise HTTPException(status_code=400, detail="Password reset token has expired")
+
+    if not user.reset_password_token_expires_at or user.reset_password_token_expires_at < datetime.utcnow():
+        # Clear expired token to prevent accumulation
+        user.reset_password_token = None
+        user.reset_password_token_expires_at = None
+        db.commit()
+        raise HTTPException(status_code=400, detail="Invalid or expired password reset token")
 
     if len(req.new_password) < 8:
         raise HTTPException(status_code=400, detail="Password must be at least 8 characters long")
 
+    # Invalidate token immediately (single use) and set new password
     user.hashed_password = get_password_hash(req.new_password)
     user.reset_password_token = None
     user.reset_password_token_expires_at = None
