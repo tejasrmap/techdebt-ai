@@ -110,8 +110,9 @@ def test_webhook_invoice_failed_and_subscription_deleted():
         db.add(org)
         db.commit()
 
+        customer_id = f"cus_fail_{uuid.uuid4().hex[:8]}"
         sub = BillingService.get_or_create_subscription(db, org_id)
-        sub.stripe_customer_id = "cus_fail_user_789"
+        sub.stripe_customer_id = customer_id
         sub.plan_id = "starter"
         db.commit()
 
@@ -119,7 +120,7 @@ def test_webhook_invoice_failed_and_subscription_deleted():
         fail_event = {
             "id": f"evt_{uuid.uuid4().hex[:12]}",
             "type": "invoice.payment_failed",
-            "data": {"object": {"customer": "cus_fail_user_789"}}
+            "data": {"object": {"customer": customer_id}}
         }
         fail_str = json.dumps(fail_event)
         now = int(time.time())
@@ -131,14 +132,15 @@ def test_webhook_invoice_failed_and_subscription_deleted():
             headers={"Content-Type": "application/json", "stripe-signature": fail_hdr}
         )
         assert res_fail.status_code == 200
-        db.refresh(sub)
+        db.commit()
+        sub = db.query(Subscription).filter_by(org_id=org_id).first()
         assert sub.status == "past_due"
 
         # 2. customer.subscription.deleted
         del_event = {
             "id": f"evt_{uuid.uuid4().hex[:12]}",
             "type": "customer.subscription.deleted",
-            "data": {"object": {"customer": "cus_fail_user_789"}}
+            "data": {"object": {"customer": customer_id}}
         }
         del_str = json.dumps(del_event)
         del_hdr = generate_stripe_header(del_str, now)
@@ -149,7 +151,8 @@ def test_webhook_invoice_failed_and_subscription_deleted():
             headers={"Content-Type": "application/json", "stripe-signature": del_hdr}
         )
         assert res_del.status_code == 200
-        db.refresh(sub)
+        db.commit()
+        sub = db.query(Subscription).filter_by(org_id=org_id).first()
         assert sub.plan_id == "free"
         assert sub.status == "canceled"
     finally:

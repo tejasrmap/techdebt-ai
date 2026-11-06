@@ -17,6 +17,11 @@ def setup_database_schema():
                 conn.commit()
             except Exception:
                 pass
+    try:
+        from app.seed_data import seed
+        seed()
+    except Exception:
+        pass
 
 @pytest.fixture(autouse=True)
 def reset_rate_limiter_and_db():

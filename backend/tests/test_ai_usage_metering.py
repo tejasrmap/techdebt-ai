@@ -48,7 +48,7 @@ def test_record_usage_and_aggregate_rollup():
     db = SessionLocal()
     try:
         org_id = f"test-org-{uuid.uuid4().hex[:8]}"
-        org = Organization(id=org_id, name="Metered Org", slug=f"slug-{uuid.uuid4().hex[:6]}", plan="pro")
+        org = Organization(id=org_id, name=f"Metered Org {uuid.uuid4().hex[:6]}", slug=f"slug-{uuid.uuid4().hex[:6]}", plan="pro")
         db.add(org)
         db.commit()
 
