@@ -12,8 +12,10 @@ from app.services.repository_ingestion_service import (
     RepositoryIngestionService, UnsafeRepositoryURLError, ArchiveSecurityError
 )
 from app.services.parsers.dependency_parser import DependencyParser
+from app.services.github_app_service import GitHubAppService, GitHubAppError
 
 router = APIRouter(prefix="/repositories", tags=["Repositories"])
+github_app = GitHubAppService()
 
 class ConnectRepoRequest(BaseModel):
     project_id: str
@@ -33,6 +35,57 @@ class RepoStatusResponse(BaseModel):
     file_count: int
     size_bytes: int
     last_synced_at: Optional[str]
+
+@router.get("/github/config")
+def get_github_app_config(current_user: User = Depends(get_current_user)):
+    """Retrieve public configuration status of GitHub App integration."""
+    return {
+        "is_configured": github_app.is_configured,
+        "app_id": github_app.app_id or "",
+        "client_id": github_app.client_id or "",
+        "install_url": f"https://github.com/apps/{os.getenv('GITHUB_APP_SLUG', 'techdebt-ai')}/installations/new" if github_app.is_configured else None
+    }
+
+@router.get("/github/installations/{installation_id}/repositories")
+def list_github_repositories(
+    installation_id: str,
+    current_user: User = Depends(get_current_user)
+):
+    """List repositories accessible to the GitHub App installation."""
+    if not github_app.is_configured:
+        raise HTTPException(
+            status_code=503,
+            detail="GitHub App integration is not configured on this instance. Please configure GITHUB_APP_ID and GITHUB_APP_PRIVATE_KEY."
+        )
+    try:
+        repos = github_app.list_installation_repositories(installation_id)
+        return {"repositories": repos}
+    except GitHubAppError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+@router.get("/github/repositories/{owner}/{repo}/branches")
+def list_github_repo_branches(
+    owner: str,
+    repo: str,
+    installation_id: Optional[str] = None,
+    token: Optional[str] = None,
+    current_user: User = Depends(get_current_user)
+):
+    """List branches for a GitHub repository."""
+    try:
+        branches = github_app.list_repository_branches(f"{owner}/{repo}", installation_id=installation_id, token=token)
+        return {"branches": branches}
+    except GitHubAppError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+@router.post("/github/disconnect/{installation_id}")
+def disconnect_github_installation(
+    installation_id: str,
+    current_user: User = Depends(require_roles(["Administrator", "Engineering Manager"]))
+):
+    """Disconnect and revoke cached GitHub App installation credentials."""
+    github_app.revoke_installation(installation_id)
+    return {"message": "GitHub App installation disconnected successfully"}
 
 @router.get("/{project_id}")
 def get_repository_connection(
