@@ -17,6 +17,20 @@ def get_dashboard_overview(current_user: User = Depends(get_current_user), db: S
     total_projects = len(projects)
     project_ids = [p.id for p in projects]
 
+    if not project_ids:
+        return DashboardOverviewResponse(
+            total_projects=0,
+            total_technologies=0,
+            technologies_requiring_attention=0,
+            outdated_dependencies=0,
+            declining_maintenance=0,
+            critical_risks=0,
+            overall_health_score=None,
+            health_distribution={"Healthy": 0, "Good": 0, "Needs Attention": 0, "High Risk": 0, "Critical": 0},
+            risk_distribution={"Critical": 0, "High": 0, "Medium": 0, "Low": 0},
+            recent_assessments=[]
+        )
+
     # 2. Total technologies across org projects
     total_technologies = (
         db.query(func.count(func.distinct(ProjectTechnology.technology_id)))

@@ -13,8 +13,8 @@
 | **01** | `chore: establish v3.0.0 development branch and architecture inventory` | **COMPLETE** | `docs/V3_*`, `tests/conftest.py` | Pytest, Vitest, tsc | PASS (4 passed, tsc 0, backend baseline) | `7614127` |
 | **02** | `fix: resolve critical password reset and account security vulnerabilities` | **COMPLETE** | `backend/app/api/v1/auth.py`, `backend/app/services/rate_limiter.py`, `backend/tests/test_password_reset.py` | Pytest (test_password_reset, test_api) | PASS (10 passed) | `a94e8c2` |
 | **03** | `feat: implement email verification and secure account lifecycle` | **COMPLETE** | `backend/app/api/v1/auth.py`, `backend/app/schemas/schemas.py`, `backend/tests/test_email_verification_and_lifecycle.py` | Pytest (lifecycle, reset, api) | PASS (12 passed) | `6fb93b6` |
-| **04** | `fix: secure credentials sessions and sensitive configuration` | **COMPLETE** | `backend/app/services/crypto_service.py`, `backend/tests/test_crypto_security.py` | Pytest (crypto, core) | PASS (15 passed) | Pending |
-| **05** | `fix: implement strict organization authorization and tenant isolation` | Planned | - | - | - | - |
+| **04** | `fix: secure credentials sessions and sensitive configuration` | **COMPLETE** | `backend/app/services/crypto_service.py`, `backend/tests/test_crypto_security.py` | Pytest (crypto, core) | PASS (15 passed) | `77d0eac` |
+| **05** | `fix: implement strict organization authorization and tenant isolation` | **COMPLETE** | `backend/app/api/v1/dashboard.py`, `backend/tests/test_tenant_authorization_matrix.py` | Pytest (20 security tests) | PASS (20 passed) | Pending |
 | **06** | `feat: complete role-based access control` | Planned | - | - | - | - |
 | **07** | `feat: complete organization and workspace management` | Planned | - | - | - | - |
 | **08** | `feat: implement team invitations and member management` | Planned | - | - | - | - |
@@ -106,5 +106,16 @@
 - **Tests Executed:** `pytest tests/test_crypto_security.py tests/test_core.py`.
 - **Test Results:** 15 passed, 0 failed.
 - **Documentation Updated:** `docs/V3_50_COMMIT_PROGRESS.md`.
+- **Commit Hash:** `77d0eac`.
+- **Remaining Issues:** Proceed to Commit 05.
+
+### COMMIT 05
+- **Title:** `fix: implement strict organization authorization and tenant isolation`
+- **Scope:** Complete tenant-isolation audit, negative authorization tests across all tenant resources (projects, repos, assessments, reports, findings, teams, billing), dashboard empty project bounds.
+- **Files Changed:** `backend/app/api/v1/dashboard.py`, `backend/tests/test_tenant_authorization_matrix.py`, `docs/V3_50_COMMIT_PROGRESS.md`.
+- **Implementation Summary:** Verified that every tenant API endpoint rigorously filters on `current_user.org_id`. Hardened dashboard overview with an early return for organizations with zero projects. Created a comprehensive 7-point cross-tenant authorization matrix test verifying that users from Tenant A cannot access, modify, or delete resources belonging to Tenant B.
+- **Tests Executed:** 20 security tests across test_password_reset, test_email_verification_and_lifecycle, test_crypto_security, test_security_multitenancy, and test_tenant_authorization_matrix.
+- **Test Results:** 20 passed, 0 failed.
+- **Documentation Updated:** `docs/V3_50_COMMIT_PROGRESS.md`.
 - **Commit Hash:** Assigned upon commit.
-- **Remaining Issues:** Proceed to Commit 05 (Strict organization authorization and tenant isolation).
+- **Remaining Issues:** Milestone 1 complete. Proceed to Milestone 2 (Commit 06: Complete role-based access control).
