@@ -447,8 +447,19 @@
 - **Tests Executed:** `pytest backend/tests/test_invoice_generation_and_history.py`.
 - **Test Results:** 2 passed, 0 failed.
 - **Documentation Updated:** `docs/V3_50_COMMIT_PROGRESS.md`.
-- **Commit Hash:** `99ed666`.
+- **Commit Hash:** `0f4ad9c`.
 - **Remaining Issues:** Milestone 7 complete (70% of roadmap achieved: 35/50 commits). Proceed to Milestone 8 (Commit 36: Customer-facing technical debt dashboard).
+
+### COMMIT 36
+- **Title:** `feat: complete commercial customer dashboard`
+- **Scope:** Complete commercial customer technical debt dashboard with executive KPIs, portfolio health matrix, financial debt liability in USD, TDR aggregations, MTTR tracking, SLA compliance rates, 5-pillar breakdown, and monthly debt remediation velocity.
+- **Files Changed:** `backend/app/api/v1/dashboard.py`, `backend/app/schemas/schemas.py`, `backend/tests/test_commercial_customer_dashboard.py`, `docs/V3_50_COMMIT_PROGRESS.md`.
+- **Implementation Summary:** Enhanced `/api/v1/dashboard/overview` with financial liability, TDR, LOC, and MTTR aggregations. Implemented `GET /api/v1/dashboard/executive-kpis` for executive decision-makers with SLA compliance, portfolio status, 5-pillar score radar, and top hotspots. Implemented `GET /api/v1/dashboard/remediation-velocity` with historical monthly open vs resolved trajectories and MTTR by severity. Implemented `GET /api/v1/dashboard/portfolio-matrix` providing detailed per-project health, TDR, and liability tracking with strict tenant isolation. Added 3 unit and integration tests covering empty state, populated calculations, and cross-tenant security.
+- **Tests Executed:** `pytest backend/tests/test_commercial_customer_dashboard.py`.
+- **Test Results:** 3 passed, 0 failed.
+- **Documentation Updated:** `docs/V3_50_COMMIT_PROGRESS.md`.
+- **Commit Hash:** `c5cb4ae`.
+- **Remaining Issues:** Proceed to Commit 37 (Complete assessment and repository user experience).
 
 
 

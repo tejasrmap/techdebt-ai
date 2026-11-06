@@ -308,3 +308,45 @@ class DashboardOverviewResponse(BaseModel):
     recent_assessments: List[Dict[str, Any]]
     historical_trend: List[Dict[str, Any]]
     project_health_breakdown: List[Dict[str, Any]]
+    total_financial_liability_usd: Optional[float] = 0.0
+    average_technical_debt_ratio: Optional[float] = 0.0
+    total_lines_of_code: Optional[int] = 0
+    remediation_mttr_days: Optional[float] = 0.0
+
+class ExecutiveKPIsResponse(BaseModel):
+    total_financial_liability_usd: float
+    average_technical_debt_ratio: float
+    remediation_mttr_days: float
+    sla_compliance_rate: float
+    total_vulnerabilities: int
+    critical_vulnerabilities: int
+    high_vulnerabilities: int
+    total_lines_of_code: int
+    portfolio_status: str
+    pillar_breakdown: Dict[str, float]
+    top_hotspots: List[Dict[str, Any]]
+
+class RemediationVelocityResponse(BaseModel):
+    total_open_risks: int
+    total_resolved_risks: int
+    total_accepted_risks: int
+    overall_mttr_days: float
+    mttr_by_severity: Dict[str, float]
+    monthly_trend: List[Dict[str, Any]]
+
+class PortfolioProjectItem(BaseModel):
+    project_id: str
+    project_name: str
+    health_score: float
+    technical_debt_ratio: float
+    financial_liability_usd: float
+    lines_of_code: int
+    risk_level: str
+    critical_risks_count: int
+    last_assessed_at: Optional[str] = None
+
+class PortfolioMatrixResponse(BaseModel):
+    total_projects: int
+    total_portfolio_liability_usd: float
+    average_tdr: float
+    projects: List[PortfolioProjectItem]
