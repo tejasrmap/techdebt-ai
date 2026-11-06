@@ -18,7 +18,7 @@ class Organization(Base):
     id = Column(String(36), primary_key=True, default=generate_uuid)
     name = Column(String(255), unique=True, index=True, nullable=False)
     slug = Column(String(255), unique=True, index=True, nullable=False)
-    plan = Column(String(50), default="enterprise")
+    plan = Column(String(50), default="free")
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
@@ -45,7 +45,7 @@ class OrganizationInvitation(Base):
     expires_at = Column(DateTime, nullable=False)
     is_accepted = Column(Boolean, default=False)
     accepted_at = Column(DateTime, nullable=True)
-    invited_by_id = Column(String(36), ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+    invited_by_id = Column(String(36), ForeignKey("users.id", ondelete="SET NULL"), nullable=True, index=True)
     created_at = Column(DateTime, default=datetime.utcnow)
 
     organization = relationship("Organization", back_populates="invitations")
@@ -80,6 +80,7 @@ class User(Base):
     reset_password_token_expires_at = Column(DateTime, nullable=True)
     mfa_enabled = Column(Boolean, default=False)
     mfa_secret = Column(String(255), nullable=True)
+    password_changed_at = Column(DateTime, nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
@@ -131,6 +132,7 @@ class Technology(Base):
     description = Column(Text, default="")
     website_url = Column(String(500), default="")
     repo_url = Column(String(500), default="")
+    license = Column(String(150), default="UNKNOWN")
     is_deprecated = Column(Boolean, default=False)
     is_eol = Column(Boolean, default=False)
     created_at = Column(DateTime, default=datetime.utcnow)
@@ -148,7 +150,11 @@ class ProjectTechnology(Base):
     project_id = Column(String(36), ForeignKey("projects.id", ondelete="CASCADE"), nullable=False, index=True)
     technology_id = Column(String(36), ForeignKey("technologies.id", ondelete="CASCADE"), nullable=False, index=True)
     installed_version = Column(String(100), default="latest")
+    latest_version = Column(String(100), default="unknown")
     is_direct_dep = Column(Boolean, default=True)
+    is_outdated = Column(Boolean, default=False)
+    license = Column(String(150), default="UNKNOWN")
+    vulnerability_status = Column(String(50), default="UNKNOWN")
     file_source = Column(String(255), default="manual")  # package.json, requirements.txt, manual, etc.
     created_at = Column(DateTime, default=datetime.utcnow)
 
@@ -172,10 +178,12 @@ class Assessment(Base):
     confidence_level = Column(String(50), default="High")  # High, Medium, Low, Unknown
     summary = Column(Text, default="")
     raw_output = Column(JSON, default=dict)
+    commit_sha = Column(String(100), default="", index=True)
+    analyzer_version = Column(String(50), default="3.1.0")
     created_at = Column(DateTime, default=datetime.utcnow, index=True)
 
-    # v2.0.0 Commercial Debt & Code Metrics
-    scoring_version = Column(String(20), default="v2.0.0")
+    # v2.0.0 / v3.1.0 Commercial Debt & Code Metrics
+    scoring_version = Column(String(20), default="v3.1.0")
     technical_debt_ratio = Column(Float, default=0.0)  # TDR percentage (0-100)
     estimated_remediation_hours = Column(Float, default=0.0)
     lines_of_code = Column(Integer, default=0)
@@ -245,7 +253,9 @@ class RiskFinding(Base):
     business_impact = Column(Text, default="")
     technical_impact = Column(Text, default="")
     status = Column(String(50), default="Open", index=True)  # Open, Investigating, Planned, In Progress, Resolved, Accepted Risk
-    assigned_to = Column(String(36), ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+    assigned_to = Column(String(36), ForeignKey("users.id", ondelete="SET NULL"), nullable=True, index=True)
+    estimated_remediation_hours = Column(Float, default=2.0)
+    fingerprint = Column(String(128), nullable=True, index=True)
     resolution_notes = Column(Text, default="")
     resolved_at = Column(DateTime, nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow, index=True)
@@ -509,6 +519,11 @@ class CodeFinding(Base):
     recommended_remediation = Column(Text, default="")
     estimated_remediation_hours = Column(Float, default=1.0)
     is_auto_verifiable = Column(Boolean, default=False)
+    status = Column(String(50), default="Open", index=True)  # Open, In Progress, Resolved, Accepted Risk, False Positive
+    assigned_to = Column(String(36), ForeignKey("users.id", ondelete="SET NULL"), nullable=True, index=True)
+    resolved_at = Column(DateTime, nullable=True)
+    analyzer_name = Column(String(100), default="SourceCodeAnalyzer")
+    analyzer_version = Column(String(50), default="3.1.0")
     created_at = Column(DateTime, default=datetime.utcnow, index=True)
 
     assessment = relationship("Assessment", back_populates="code_findings")
@@ -558,9 +573,14 @@ class Subscription(Base):
 
     id = Column(String(36), primary_key=True, default=generate_uuid)
     org_id = Column(String(36), ForeignKey("organizations.id", ondelete="CASCADE"), unique=True, nullable=False)
-    plan_id = Column(String(50), ForeignKey("subscription_plans.id"), default="free", nullable=False)
+    plan_id = Column(String(50), ForeignKey("subscription_plans.id"), default="free", nullable=False, index=True)
     status = Column(String(50), default="active", index=True)  # active, trialing, past_due, canceled
     billing_cycle = Column(String(20), default="monthly")  # monthly, yearly
+    payment_provider = Column(String(50), default="razorpay")  # razorpay, stripe, none
+    provider_customer_id = Column(String(255), default="", index=True)
+    provider_subscription_id = Column(String(255), default="", index=True)
+    provider_order_id = Column(String(255), default="", index=True)
+    provider_payment_id = Column(String(255), default="", index=True)
     stripe_customer_id = Column(String(255), default="", index=True)
     stripe_subscription_id = Column(String(255), default="", index=True)
     current_period_start = Column(DateTime, default=datetime.utcnow)
@@ -679,4 +699,181 @@ class AIUsageLedger(Base):
 
     organization = relationship("Organization")
     user = relationship("User")
+
+
+# ==============================================================================
+# v3.1.0 Engineering Intelligence, Ingestion Snapshots, Billing & Security Models
+# ==============================================================================
+
+class RepositoryIngestionRun(Base):
+    __tablename__ = "repository_ingestion_runs"
+
+    id = Column(String(36), primary_key=True, default=generate_uuid)
+    org_id = Column(String(36), ForeignKey("organizations.id", ondelete="CASCADE"), nullable=False, index=True)
+    project_id = Column(String(36), ForeignKey("projects.id", ondelete="CASCADE"), nullable=False, index=True)
+    repo_connection_id = Column(String(36), ForeignKey("repository_connections.id", ondelete="SET NULL"), nullable=True, index=True)
+    provider = Column(String(50), default="github", nullable=False)  # github, gitlab, bitbucket, zip_upload
+    branch = Column(String(100), default="main", nullable=False)
+    commit_sha = Column(String(100), default="", index=True)
+    commit_message = Column(Text, default="")
+    commit_author = Column(String(255), default="")
+    status = Column(String(50), default="QUEUED", nullable=False, index=True)  # QUEUED, CLONING_OR_DOWNLOADING, ANALYSING, PERSISTING, COMPLETED, FAILED, CANCELLED
+    progress_pct = Column(Integer, default=0)
+    analyzer_version = Column(String(50), default="3.1.0")
+    files_examined = Column(Integer, default=0)
+    files_analyzed = Column(Integer, default=0)
+    files_excluded = Column(Integer, default=0)
+    unsupported_files = Column(Integer, default=0)
+    parser_failures = Column(Integer, default=0)
+    lines_of_code = Column(Integer, default=0)
+    languages_json = Column(JSON, default=list)
+    frameworks_json = Column(JSON, default=list)
+    dependencies_count = Column(Integer, default=0)
+    findings_count = Column(Integer, default=0)
+    error_message = Column(Text, default="")
+    started_at = Column(DateTime, nullable=True)
+    completed_at = Column(DateTime, nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow, index=True)
+
+
+class RepositoryAnalysisSnapshot(Base):
+    __tablename__ = "repository_analysis_snapshots"
+
+    id = Column(String(36), primary_key=True, default=generate_uuid)
+    org_id = Column(String(36), ForeignKey("organizations.id", ondelete="CASCADE"), nullable=False, index=True)
+    project_id = Column(String(36), ForeignKey("projects.id", ondelete="CASCADE"), nullable=False, index=True)
+    repo_connection_id = Column(String(36), ForeignKey("repository_connections.id", ondelete="SET NULL"), nullable=True, index=True)
+    ingestion_run_id = Column(String(36), ForeignKey("repository_ingestion_runs.id", ondelete="SET NULL"), nullable=True, index=True)
+    provider = Column(String(50), default="github", nullable=False)
+    branch = Column(String(100), default="main", nullable=False)
+    commit_sha = Column(String(100), default="", nullable=False, index=True)
+    commit_message = Column(Text, default="")
+    commit_author = Column(String(255), default="")
+    analyzer_version = Column(String(50), default="3.1.0", nullable=False)
+    files_examined = Column(Integer, default=0)
+    files_analyzed = Column(Integer, default=0)
+    files_excluded = Column(Integer, default=0)
+    unsupported_files = Column(Integer, default=0)
+    parser_failures = Column(Integer, default=0)
+    lines_of_code = Column(Integer, default=0)
+    languages_json = Column(JSON, default=list)
+    frameworks_json = Column(JSON, default=list)
+    code_metrics_json = Column(JSON, default=dict)
+    findings_json = Column(JSON, default=list)
+    dependencies_json = Column(JSON, default=list)
+    architecture_json = Column(JSON, default=dict)
+    created_at = Column(DateTime, default=datetime.utcnow, index=True)
+
+    __table_args__ = (
+        Index("idx_repo_snapshot_proj_commit_ver", "project_id", "commit_sha", "analyzer_version"),
+    )
+
+
+class VulnerabilityCacheEntry(Base):
+    __tablename__ = "vulnerability_cache_entries"
+
+    id = Column(String(36), primary_key=True, default=generate_uuid)
+    cache_key = Column(String(500), unique=True, nullable=False, index=True)
+    ecosystem = Column(String(100), nullable=False, index=True)
+    package_name = Column(String(255), nullable=False, index=True)
+    version = Column(String(100), nullable=False)
+    provider = Column(String(50), default="osv")
+    status = Column(String(50), default="UNKNOWN", nullable=False)  # CLEAN, VULNERABLE, UNKNOWN, CHECK_FAILED
+    vulnerabilities_json = Column(JSON, default=list)
+    license_raw = Column(String(255), default="")
+    license_spdx = Column(String(150), default="UNKNOWN")
+    latest_version = Column(String(100), default="unknown")
+    is_deprecated = Column(Boolean, default=False)
+    fetched_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+    expires_at = Column(DateTime, nullable=False, index=True)
+
+
+class PaymentOrder(Base):
+    __tablename__ = "payment_orders"
+
+    id = Column(String(36), primary_key=True, default=generate_uuid)
+    org_id = Column(String(36), ForeignKey("organizations.id", ondelete="CASCADE"), nullable=False, index=True)
+    user_id = Column(String(36), ForeignKey("users.id", ondelete="SET NULL"), nullable=True, index=True)
+    provider = Column(String(50), default="razorpay", nullable=False)
+    provider_order_id = Column(String(255), unique=True, nullable=False, index=True)
+    plan_id = Column(String(50), ForeignKey("subscription_plans.id"), nullable=False, index=True)
+    billing_cycle = Column(String(20), default="monthly", nullable=False)
+    amount_subunits = Column(Integer, nullable=False)
+    currency = Column(String(10), default="USD", nullable=False)
+    status = Column(String(50), default="created", nullable=False, index=True)  # created, paid, failed, expired
+    provider_payment_id = Column(String(255), unique=True, nullable=True, index=True)
+    receipt = Column(String(100), default="")
+    error_message = Column(Text, default="")
+    expires_at = Column(DateTime, nullable=False)
+    verified_at = Column(DateTime, nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow, index=True)
+
+
+class BillingWebhookEvent(Base):
+    __tablename__ = "billing_webhook_events"
+
+    id = Column(String(36), primary_key=True, default=generate_uuid)
+    provider = Column(String(50), nullable=False, index=True)  # razorpay, stripe
+    event_id = Column(String(255), unique=True, nullable=False, index=True)
+    event_type = Column(String(100), nullable=False, index=True)
+    org_id = Column(String(36), nullable=True, index=True)
+    payload_hash = Column(String(64), default="")
+    status = Column(String(50), default="processed", nullable=False)
+    action_taken = Column(String(100), default="none")
+    error_message = Column(Text, default="")
+    processed_at = Column(DateTime, default=datetime.utcnow)
+    created_at = Column(DateTime, default=datetime.utcnow, index=True)
+
+
+class WebhookDeliveryEvent(Base):
+    __tablename__ = "webhook_delivery_events"
+
+    id = Column(String(36), primary_key=True, default=generate_uuid)
+    provider = Column(String(50), nullable=False, index=True)  # github, gitlab, bitbucket
+    delivery_id = Column(String(255), unique=True, nullable=False, index=True)
+    org_id = Column(String(36), nullable=True, index=True)
+    project_id = Column(String(36), nullable=True, index=True)
+    repo_connection_id = Column(String(36), ForeignKey("repository_connections.id", ondelete="SET NULL"), nullable=True, index=True)
+    event_type = Column(String(100), default="push")  # push, pull_request, merge_request
+    branch = Column(String(100), default="main")
+    commit_sha = Column(String(100), default="")
+    pr_number = Column(Integer, nullable=True)
+    status = Column(String(50), default="queued", index=True)  # queued, processing, completed, failed
+    ingestion_run_id = Column(String(36), nullable=True)
+    retry_count = Column(Integer, default=0)
+    error_message = Column(Text, default="")
+    created_at = Column(DateTime, default=datetime.utcnow, index=True)
+
+
+class RateLimitBucket(Base):
+    __tablename__ = "rate_limit_buckets"
+
+    bucket_key = Column(String(255), primary_key=True)
+    window_start = Column(Integer, nullable=False)
+    request_count = Column(Integer, default=1, nullable=False)
+    expires_at = Column(DateTime, nullable=False, index=True)
+
+
+class RemediationWorkPackage(Base):
+    __tablename__ = "remediation_work_packages"
+
+    id = Column(String(36), primary_key=True, default=generate_uuid)
+    org_id = Column(String(36), ForeignKey("organizations.id", ondelete="CASCADE"), nullable=False, index=True)
+    project_id = Column(String(36), ForeignKey("projects.id", ondelete="CASCADE"), nullable=False, index=True)
+    title = Column(String(255), nullable=False)
+    description = Column(Text, default="")
+    priority = Column(String(50), default="Medium", index=True)  # Critical, High, Medium, Low
+    priority_score = Column(Float, default=50.0)
+    priority_rationale = Column(Text, default="")
+    finding_refs_json = Column(JSON, default=list)
+    proposed_fix = Column(Text, default="")
+    dependencies_json = Column(JSON, default=list)
+    estimated_hours = Column(Float, default=2.0)
+    owner_user_id = Column(String(36), ForeignKey("users.id", ondelete="SET NULL"), nullable=True, index=True)
+    target_date = Column(DateTime, nullable=True)
+    status = Column(String(50), default="Planned", index=True)  # Planned, In Progress, Blocked, Completed
+    verification_criteria = Column(Text, default="")
+    created_at = Column(DateTime, default=datetime.utcnow, index=True)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
 
