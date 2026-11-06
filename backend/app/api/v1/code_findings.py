@@ -144,3 +144,93 @@ def get_code_finding_detail(
         "created_at": finding.created_at.isoformat()
     }
 
+@router.get("/project/{project_id}/quality-summary")
+def get_project_quality_summary(
+    project_id: str,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """Retrieve comprehensive quality score, maintainability index, defect density, and grade."""
+    project = db.query(Project).filter(Project.id == project_id, Project.org_id == current_user.org_id).first()
+    if not project:
+        raise HTTPException(status_code=404, detail="Project not found")
+
+    latest_assessment = (
+        db.query(Assessment)
+        .filter(Assessment.project_id == project_id, Assessment.status == "completed")
+        .order_by(Assessment.created_at.desc())
+        .first()
+    )
+
+    findings = db.query(CodeFinding).filter(CodeFinding.project_id == project_id).all()
+
+    sev_counts = {"Critical": 0, "High": 0, "Medium": 0, "Low": 0, "Info": 0}
+    cat_hours: dict = {}
+    total_hours = 0.0
+
+    for f in findings:
+        sev = f.severity or "Medium"
+        sev_counts[sev] = sev_counts.get(sev, 0) + 1
+        cat = f.category or "maintainability"
+        hours = f.estimated_remediation_hours or 1.0
+        cat_hours[cat] = round(cat_hours.get(cat, 0.0) + hours, 1)
+        total_hours += hours
+
+    loc = latest_assessment.lines_of_code if (latest_assessment and latest_assessment.lines_of_code) else 1000
+    defect_density = round((len(findings) / max(1, loc)) * 1000, 2)
+    crit_count = sev_counts["Critical"]
+
+    if crit_count > 2:
+        grade = "F"
+    elif crit_count > 0:
+        grade = "D"
+    elif defect_density < 8.0 and sev_counts["High"] == 0:
+        grade = "A"
+    elif defect_density < 20.0 and sev_counts["High"] <= 3:
+        grade = "B"
+    elif defect_density < 40.0:
+        grade = "C"
+    else:
+        grade = "D"
+
+    return {
+        "project_id": project_id,
+        "quality_grade": grade,
+        "total_findings": len(findings),
+        "total_remediation_hours": round(total_hours, 1),
+        "defect_density_per_kloc": defect_density,
+        "severity_breakdown": sev_counts,
+        "category_remediation_hours": cat_hours,
+        "lines_of_code": loc
+    }
+
+@router.post("/project/{project_id}/analyze")
+def trigger_project_code_analysis(
+    project_id: str,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """Trigger on-demand static code analysis on the project repository workspace."""
+    project = db.query(Project).filter(Project.id == project_id, Project.org_id == current_user.org_id).first()
+    if not project:
+        raise HTTPException(status_code=404, detail="Project not found")
+
+    import os
+    from app.services.source_code_analyzer import SourceCodeAnalyzer
+
+    workspace_dir = os.path.abspath(os.path.join("storage", "repos", project_id))
+    analyzer = SourceCodeAnalyzer(root_dir=workspace_dir if os.path.exists(workspace_dir) else ".")
+    result = analyzer.analyze_repository()
+
+    return {
+        "project_id": project_id,
+        "files_analyzed": result["files_analyzed"],
+        "lines_of_code": result["lines_of_code"],
+        "maintainability_index": result["maintainability_index"],
+        "quality_grade": result["quality_grade"],
+        "defect_density": result["defect_density"],
+        "findings_count": len(result["findings"]),
+        "severity_breakdown": result["severity_breakdown"],
+        "hotspots": result["hotspots"][:5]
+    }
+

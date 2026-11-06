@@ -36,6 +36,10 @@ class AnalysisResult:
         self.code_duplication_percentage = data.get("code_duplication_percentage", 0.0)
         self.maintainability_index = data.get("maintainability_index", 85.0)
         self.total_remediation_hours = data.get("total_remediation_hours", 0.0)
+        self.quality_grade = data.get("quality_grade", "A")
+        self.defect_density = data.get("defect_density", 0.0)
+        self.severity_breakdown = data.get("severity_breakdown", {})
+        self.category_remediation_hours = data.get("category_remediation_hours", {})
         self.findings = [CodeFindingItem(f) for f in data.get("findings", [])]
         self.hotspots = data.get("hotspots", [])
 
@@ -277,22 +281,54 @@ class SourceCodeAnalyzer:
         except Exception:
             maintainability_index = 80.0
 
-        # Identify hotspots (files with highest risk & finding density)
-        hotspots = sorted(
-            [
-                {
+        # Severity breakdown & category remediation hours
+        severity_breakdown = {"Critical": 0, "High": 0, "Medium": 0, "Low": 0, "Info": 0}
+        category_remediation_hours: Dict[str, float] = {}
+
+        for f in findings:
+            sev = f.get("severity", "Medium")
+            severity_breakdown[sev] = severity_breakdown.get(sev, 0) + 1
+            cat = f.get("category", "maintainability")
+            category_remediation_hours[cat] = round(
+                category_remediation_hours.get(cat, 0.0) + f.get("estimated_remediation_hours", 1.0),
+                1
+            )
+
+        # Defect density per 1,000 LOC
+        defect_density = round((len(findings) / max(1, total_loc)) * 1000, 2)
+
+        # Unified Quality Grade (A, B, C, D, F)
+        crit_count = severity_breakdown.get("Critical", 0)
+        high_count = severity_breakdown.get("High", 0)
+        if crit_count > 2:
+            quality_grade = "F"
+        elif crit_count > 0:
+            quality_grade = "D"
+        elif maintainability_index >= 85 and defect_density < 8.0 and high_count == 0:
+            quality_grade = "A"
+        elif maintainability_index >= 70 and defect_density < 20.0 and high_count <= 3:
+            quality_grade = "B"
+        elif maintainability_index >= 55 and defect_density < 40.0:
+            quality_grade = "C"
+        elif maintainability_index >= 40:
+            quality_grade = "D"
+        else:
+            quality_grade = "F"
+
+        # Identify hotspots with composite score
+        hotspot_candidates = []
+        for path, data in file_metrics.items():
+            if data["findings_count"] > 0 or data["complexity"] > 10 or data["loc"] > 300:
+                score = round((data["loc"] * 0.05) + (data["complexity"] * 1.5) + (data["findings_count"] * 2.0), 1)
+                hotspot_candidates.append({
                     "file_path": path,
                     "loc": data["loc"],
                     "complexity": data["complexity"],
                     "findings_count": data["findings_count"],
-                    "language": data["language"]
-                }
-                for path, data in file_metrics.items()
-                if data["findings_count"] > 0 or data["complexity"] > 15 or data["loc"] > 500
-            ],
-            key=lambda x: (x["findings_count"] * 2 + x["complexity"]),
-            reverse=True
-        )[:15]
+                    "language": data["language"],
+                    "hotspot_score": score
+                })
+        hotspots = sorted(hotspot_candidates, key=lambda x: x["hotspot_score"], reverse=True)[:15]
 
         # Calculate estimated total remediation hours
         total_remediation_hours = round(sum(f.get("estimated_remediation_hours", 1.0) for f in findings), 1)
@@ -305,6 +341,10 @@ class SourceCodeAnalyzer:
             "max_cyclomatic_complexity": max_complexity,
             "code_duplication_percentage": duplication_pct,
             "maintainability_index": maintainability_index,
+            "quality_grade": quality_grade,
+            "defect_density": defect_density,
+            "severity_breakdown": severity_breakdown,
+            "category_remediation_hours": category_remediation_hours,
             "total_remediation_hours": total_remediation_hours,
             "findings": findings,
             "hotspots": hotspots
@@ -1752,10 +1792,9 @@ class SourceCodeAnalyzer:
 
         for i in range(len(lines) - block_size + 1):
             block = [lines[i + j].strip() for j in range(block_size)]
-            # Skip blocks that are mostly comments or trivial brackets
-            if any(len(b) < 4 for b in block):
-                continue
-            if any(b.startswith(("#", "//", "/*", "*")) for b in block):
+            # Skip blocks that are mostly comments or trivial whitespace
+            non_empty = [b for b in block if len(b) > 0 and not b.startswith(("#", "//", "/*", "*"))]
+            if len(non_empty) < 4 or sum(len(b) for b in non_empty) < 25:
                 continue
 
             block_text = "\n".join(block)
