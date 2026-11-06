@@ -309,6 +309,110 @@ def inspect_prompt(
     result["boundary_nonce"] = boundary_nonce
     return result
 
+class AssistantChatRequest(BaseModel):
+    project_id: str
+    message: str
+    conversation_history: Optional[List[Dict[str, str]]] = None
+
+class AssistantRecommendationsRequest(BaseModel):
+    project_id: str
+
+@router.post("/assistant/chat")
+async def assistant_chat(
+    req: AssistantChatRequest,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    project = db.query(Project).filter(Project.id == req.project_id, Project.org_id == current_user.org_id).first()
+    if not project:
+        raise HTTPException(status_code=404, detail="Project not found or unauthorized")
+
+    from app.services.ai_engineering_assistant import AIEngineeringAssistant
+    from app.models.all_models import Assessment, RiskFinding, ProjectTechnology, Technology
+
+    # Gather project telemetry
+    latest_asmt = (
+        db.query(Assessment)
+        .filter(Assessment.project_id == project.id, Assessment.status == "completed")
+        .order_by(Assessment.created_at.desc())
+        .first()
+    )
+    raw = latest_asmt.raw_output if latest_asmt and latest_asmt.raw_output else {}
+    hotspots = raw.get("hotspots", [])
+    code_findings = raw.get("code_findings", [])
+    
+    risks = db.query(RiskFinding).filter(RiskFinding.project_id == project.id).all()
+    risk_list = [{"title": r.title, "severity": r.severity} for r in risks]
+
+    links = db.query(ProjectTechnology).filter(ProjectTechnology.project_id == project.id).all()
+    dep_list = []
+    for l in links:
+        t = db.query(Technology).filter(Technology.id == l.technology_id).first()
+        if t:
+            dep_list.append({"name": t.name, "version": l.installed_version or "latest"})
+
+    telemetry = {
+        "health_score": latest_asmt.overall_health_score if latest_asmt else 80.0,
+        "risk_classification": latest_asmt.risk_classification if latest_asmt else "Good",
+        "findings": risk_list + code_findings,
+        "hotspots": hotspots,
+        "dependencies": dep_list
+    }
+
+    assistant = AIEngineeringAssistant()
+    chat_result = await assistant.chat(
+        project_name=project.name,
+        user_message=req.message,
+        conversation_history=req.conversation_history,
+        telemetry=telemetry
+    )
+    chat_result["project_id"] = project.id
+    return chat_result
+
+@router.post("/assistant/recommendations")
+async def get_assistant_recommendations(
+    req: AssistantRecommendationsRequest,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    project = db.query(Project).filter(Project.id == req.project_id, Project.org_id == current_user.org_id).first()
+    if not project:
+        raise HTTPException(status_code=404, detail="Project not found or unauthorized")
+
+    from app.services.ai_engineering_assistant import AIEngineeringAssistant
+    from app.models.all_models import Assessment, ProjectTechnology, Technology
+
+    latest_asmt = (
+        db.query(Assessment)
+        .filter(Assessment.project_id == project.id, Assessment.status == "completed")
+        .order_by(Assessment.created_at.desc())
+        .first()
+    )
+    raw = latest_asmt.raw_output if latest_asmt and latest_asmt.raw_output else {}
+    hotspots = raw.get("hotspots", [])
+    code_findings = raw.get("code_findings", [])
+
+    links = db.query(ProjectTechnology).filter(ProjectTechnology.project_id == project.id).all()
+    dep_list = [{"name": l.technology_id, "version": l.installed_version or "latest"} for l in links]
+
+    score = latest_asmt.overall_health_score if latest_asmt else 80.0
+    risk_class = latest_asmt.risk_classification if latest_asmt else "Good"
+    hours = latest_asmt.estimated_remediation_hours if latest_asmt else 10.0
+
+    assistant = AIEngineeringAssistant()
+    recs = await assistant.generate_engineering_recommendations(
+        project_name=project.name,
+        overall_score=score,
+        risk_classification=risk_class,
+        hotspots=hotspots,
+        code_findings=code_findings,
+        dependencies=dep_list,
+        total_remediation_hours=hours
+    )
+    recs["project_id"] = project.id
+    return recs
+
+
 
 
 
