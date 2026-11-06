@@ -381,8 +381,20 @@
 - **Tests Executed:** `pytest backend/tests/test_architecture_review.py`.
 - **Test Results:** 3 passed, 0 failed.
 - **Documentation Updated:** `docs/V3_50_COMMIT_PROGRESS.md`.
-- **Commit Hash:** `200f589`.
+- **Commit Hash:** `d4eb1ea`.
 - **Remaining Issues:** Proceed to Commit 30 (AI usage metering and cost tracking).
+
+### COMMIT 30
+- **Title:** `feat: implement AI usage metering and cost tracking`
+- **Scope:** Real-time token and financial cost accounting for all LLM providers and models (Gemini Flash/Pro, GPT-4o/mini, Claude Sonnet/Haiku, Deterministic), `AIUsageLedger` persistent transaction logging, multi-tenant monthly quota tracking and percentage limits, automated ledger recording during assistant requests, and usage reporting endpoints.
+- **Files Changed:** `backend/app/models/all_models.py`, `backend/app/services/ai_usage_service.py`, `backend/app/api/v1/intelligence.py`, `backend/tests/test_ai_usage_metering.py`, `docs/V3_50_COMMIT_PROGRESS.md`.
+- **Implementation Summary:** Added `AIUsageLedger` model to `all_models.py` capturing token quantities, costs, latency, operation types, and organization associations. Implemented `AIUsageMeteringService` with model pricing maps per 1k input/output tokens, monthly aggregate `UsageRecord` updates, and tier quota checks. Hooked automatic recording into assistant chat execution. Added `GET /api/v1/intelligence/ai-usage/summary` and `GET /api/v1/intelligence/ai-usage/records` endpoints. Added 3 comprehensive tests.
+- **Tests Executed:** `pytest backend/tests/test_ai_usage_metering.py`.
+- **Test Results:** 3 passed, 0 failed.
+- **Documentation Updated:** `docs/V3_50_COMMIT_PROGRESS.md`.
+- **Commit Hash:** `5150416`.
+- **Remaining Issues:** Milestone 6 complete (60% of roadmap achieved: 30/50 commits). Proceed to Milestone 7 (Commit 31: Commercial subscription tiers and quota limits).
+
 
 
 

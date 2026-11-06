@@ -624,3 +624,23 @@ class NotificationPreference(Base):
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
     user = relationship("User", back_populates="notification_preferences")
+
+class AIUsageLedger(Base):
+    __tablename__ = "ai_usage_ledgers"
+
+    id = Column(String(36), primary_key=True, default=generate_uuid)
+    org_id = Column(String(36), ForeignKey("organizations.id", ondelete="CASCADE"), nullable=False, index=True)
+    user_id = Column(String(36), ForeignKey("users.id", ondelete="SET NULL"), nullable=True, index=True)
+    provider = Column(String(50), nullable=False, index=True)
+    model = Column(String(100), nullable=False)
+    operation_type = Column(String(100), default="chat")  # chat, recommendation, assessment, review
+    prompt_tokens = Column(Integer, default=0)
+    completion_tokens = Column(Integer, default=0)
+    total_tokens = Column(Integer, default=0)
+    cost_usd = Column(Float, default=0.0)
+    latency_ms = Column(Float, default=0.0)
+    created_at = Column(DateTime, default=datetime.utcnow, index=True)
+
+    organization = relationship("Organization")
+    user = relationship("User")
+

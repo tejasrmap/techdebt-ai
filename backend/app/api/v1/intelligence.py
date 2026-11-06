@@ -367,6 +367,21 @@ async def assistant_chat(
         telemetry=telemetry
     )
     chat_result["project_id"] = project.id
+
+    # Record AI usage in metering ledger
+    from app.services.ai_usage_service import AIUsageMeteringService
+    AIUsageMeteringService.record_usage(
+        db=db,
+        org_id=current_user.org_id,
+        user_id=current_user.id,
+        provider=chat_result.get("provider_used", "deterministic"),
+        model="assistant-chat-v3",
+        prompt_tokens=max(10, len(req.message) // 4 + 150),
+        completion_tokens=max(10, len(chat_result.get("response", "")) // 4),
+        latency_ms=chat_result.get("latency_ms", 10.0),
+        operation_type="assistant_chat"
+    )
+
     return chat_result
 
 @router.post("/assistant/recommendations")
@@ -461,6 +476,25 @@ def get_project_architecture_review(
     review["project_id"] = project.id
     review["project_name"] = project.name
     return review
+
+@router.get("/ai-usage/summary")
+def get_ai_usage_summary(
+    period: Optional[str] = None,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    from app.services.ai_usage_service import AIUsageMeteringService
+    return AIUsageMeteringService.get_usage_summary(db=db, org_id=current_user.org_id, period=period)
+
+@router.get("/ai-usage/records")
+def get_ai_usage_records(
+    limit: int = 50,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    from app.services.ai_usage_service import AIUsageMeteringService
+    return AIUsageMeteringService.get_usage_records(db=db, org_id=current_user.org_id, limit=limit)
+
 
 
 
