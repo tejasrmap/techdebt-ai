@@ -13,9 +13,11 @@ from app.services.repository_ingestion_service import (
 )
 from app.services.parsers.dependency_parser import DependencyParser
 from app.services.github_app_service import GitHubAppService, GitHubAppError
+from app.services.gitlab_service import GitLabService, GitLabIntegrationError
 
 router = APIRouter(prefix="/repositories", tags=["Repositories"])
 github_app = GitHubAppService()
+gitlab_service = GitLabService()
 
 class ConnectRepoRequest(BaseModel):
     project_id: str
@@ -86,6 +88,85 @@ def disconnect_github_installation(
     """Disconnect and revoke cached GitHub App installation credentials."""
     github_app.revoke_installation(installation_id)
     return {"message": "GitHub App installation disconnected successfully"}
+
+class GitLabAuthUrlRequest(BaseModel):
+    redirect_uri: str
+    state: Optional[str] = "techdebt-gitlab-auth"
+
+class GitLabTokenExchangeRequest(BaseModel):
+    code: str
+    redirect_uri: str
+
+@router.get("/gitlab/config")
+def get_gitlab_config(current_user: User = Depends(get_current_user)):
+    """Retrieve public configuration status of GitLab integration."""
+    return {
+        "is_configured": gitlab_service.is_configured,
+        "gitlab_url": gitlab_service.gitlab_url
+    }
+
+@router.post("/gitlab/authorize-url")
+def get_gitlab_authorize_url(
+    payload: GitLabAuthUrlRequest,
+    current_user: User = Depends(get_current_user)
+):
+    """Generate OAuth authorization URL for GitLab connection."""
+    if not gitlab_service.is_configured:
+        raise HTTPException(
+            status_code=503,
+            detail="GitLab integration is not configured. Missing GITLAB_CLIENT_ID or GITLAB_CLIENT_SECRET."
+        )
+    try:
+        url = gitlab_service.get_authorization_url(payload.redirect_uri, payload.state or "techdebt-gitlab-auth")
+        return {"authorization_url": url}
+    except GitLabIntegrationError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+@router.post("/gitlab/token")
+def exchange_gitlab_token(
+    payload: GitLabTokenExchangeRequest,
+    current_user: User = Depends(get_current_user)
+):
+    """Exchange authorization code for GitLab OAuth token."""
+    if not gitlab_service.is_configured:
+        raise HTTPException(
+            status_code=503,
+            detail="GitLab integration is not configured."
+        )
+    try:
+        data = gitlab_service.exchange_code_for_token(payload.code, payload.redirect_uri)
+        return data
+    except GitLabIntegrationError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+@router.get("/gitlab/projects")
+def list_gitlab_projects(
+    token: Optional[str] = None,
+    current_user: User = Depends(get_current_user)
+):
+    """List projects accessible to the authenticated GitLab user."""
+    if not token or not token.strip():
+        raise HTTPException(status_code=400, detail="GitLab access token is required")
+    try:
+        projects = gitlab_service.list_user_projects(token)
+        return {"projects": projects}
+    except GitLabIntegrationError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+@router.get("/gitlab/projects/{gitlab_project_id}/branches")
+def list_gitlab_project_branches(
+    gitlab_project_id: str,
+    token: Optional[str] = None,
+    current_user: User = Depends(get_current_user)
+):
+    """List branches for a specific GitLab project."""
+    if not token or not token.strip():
+        raise HTTPException(status_code=400, detail="GitLab access token is required")
+    try:
+        branches = gitlab_service.list_project_branches(gitlab_project_id, token)
+        return {"branches": branches}
+    except GitLabIntegrationError as e:
+        raise HTTPException(status_code=400, detail=str(e))
 
 @router.get("/{project_id}")
 def get_repository_connection(
