@@ -2,20 +2,24 @@ import re
 import os
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
-from typing import List, Optional
+from typing import List, Optional, Dict, Any
+from pydantic import BaseModel
 from app.database import get_db
 from app.models.all_models import Technology, ProjectTechnology, Project, User, Assessment, TechnologyScore, AuditLog
 from app.schemas.schemas import TechnologyCreate, TechnologyResponse, DependencyImportRequest
 from app.services.auth_service import get_current_user, require_roles
 from app.services.parsers.dependency_parser import DependencyParser
+from app.services.dependency_health_service import DependencyHealthService
 from app.config import settings
 
 router = APIRouter(prefix="/technologies", tags=["Technologies"])
 
 ALLOWED_MANIFEST_EXTENSIONS = {
-    "package.json", "requirements.txt", "pyproject.toml",
+    "package.json", "package-lock.json", "pnpm-lock.yaml", "yarn.lock",
+    "requirements.txt", "pyproject.toml", "pipfile", "pipfile.lock",
     "pom.xml", "build.gradle", "build.gradle.kts",
-    "cargo.toml", "go.mod", "composer.json"
+    "cargo.toml", "cargo.lock", "go.mod", "go.sum",
+    "composer.json", "composer.lock", "gemfile", "gemfile.lock"
 }
 
 def validate_manifest_upload(file_name: str, content: str):
@@ -252,3 +256,59 @@ def remove_technology_from_project(
     db.delete(link)
     db.commit()
     return {"message": "Technology removed from project"}
+
+class DependencyHealthRequest(BaseModel):
+    dependencies: Optional[List[Dict[str, Any]]] = None
+    manifest_content: Optional[str] = None
+    file_name: Optional[str] = None
+
+@router.get("/project/{project_id}/health")
+def get_project_dependency_health(
+    project_id: str,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    project = db.query(Project).filter(Project.id == project_id, Project.org_id == current_user.org_id).first()
+    if not project:
+        raise HTTPException(status_code=404, detail="Project not found or unauthorized")
+
+    links = db.query(ProjectTechnology).filter(ProjectTechnology.project_id == project.id).all()
+    dep_payloads = []
+    for link in links:
+        tech = db.query(Technology).filter(Technology.id == link.technology_id).first()
+        if tech:
+            dep_payloads.append({
+                "name": tech.name,
+                "version": link.installed_version or "latest",
+                "ecosystem": tech.ecosystem or "unknown"
+            })
+
+    health_report = DependencyHealthService.evaluate_project_dependencies(dep_payloads)
+    health_report["project_id"] = project.id
+    health_report["project_name"] = project.name
+    return health_report
+
+@router.post("/evaluate-health")
+def evaluate_dependencies_health(
+    req: DependencyHealthRequest,
+    current_user: User = Depends(get_current_user)
+):
+    dep_list: List[Dict[str, Any]] = []
+    if req.manifest_content and req.file_name:
+        parsed = DependencyParser.parse(req.file_name, req.manifest_content)
+        for p in parsed:
+            dep_list.append({
+                "name": p.get("name"),
+                "version": p.get("installed_version") or p.get("version", "latest"),
+                "ecosystem": p.get("ecosystem", "unknown")
+            })
+    elif req.dependencies:
+        dep_list = req.dependencies
+    else:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Either dependencies list or manifest_content + file_name must be supplied"
+        )
+
+    return DependencyHealthService.evaluate_project_dependencies(dep_list)
+

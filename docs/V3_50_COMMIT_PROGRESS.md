@@ -293,6 +293,18 @@
 - **Tests Executed:** `pytest backend/tests/test_dependency_manifest_parsers.py`.
 - **Test Results:** 5 passed, 0 failed.
 - **Documentation Updated:** `docs/V3_50_COMMIT_PROGRESS.md`.
-- **Commit Hash:** `cbace99`.
+- **Commit Hash:** `e2dc7fb`.
 - **Remaining Issues:** Proceed to Commit 22 (Dependency health and upgrade intelligence).
+
+### COMMIT 22
+- **Title:** `feat: implement dependency health and upgrade intelligence`
+- **Scope:** Dependency health evaluation, semver parsing and diffing (patch, minor, major), deprecation detection and replacement guidance, breaking change migration notes (Pydantic, SQLAlchemy, React, Vue, Django, Webpack), aggregate health scorecard (A-F, 0-100), and REST API endpoints.
+- **Files Changed:** `backend/app/services/dependency_health_service.py`, `backend/app/api/v1/technologies.py`, `backend/tests/test_dependency_health.py`, `docs/V3_50_COMMIT_PROGRESS.md`.
+- **Implementation Summary:** Implemented `DependencyHealthService` with semver parsing, major/minor/patch diffing, deprecation knowledge base with replacement advice, breaking migration notes, and penalty-based project dependency health scoring. Added `GET /api/v1/technologies/project/{project_id}/health` and `POST /api/v1/technologies/evaluate-health` endpoints. Added 5 unit and integration tests covering version comparisons, deprecation rules, breaking migration notes, aggregate grading, and API validation.
+- **Tests Executed:** `pytest backend/tests/test_dependency_health.py`.
+- **Test Results:** 5 passed, 0 failed.
+- **Documentation Updated:** `docs/V3_50_COMMIT_PROGRESS.md`.
+- **Commit Hash:** `38db0ec`.
+- **Remaining Issues:** Proceed to Commit 23 (Vulnerability and license intelligence).
+
 
