@@ -768,6 +768,42 @@ class RepositoryAnalysisSnapshot(Base):
         Index("idx_repo_snapshot_proj_commit_ver", "project_id", "commit_sha", "analyzer_version"),
     )
 
+    @property
+    def test_files_count(self) -> int:
+        return int((self.code_metrics_json or {}).get("test_files_count", 0))
+
+    @property
+    def maintainability_index(self) -> Optional[float]:
+        return (self.code_metrics_json or {}).get("maintainability_index")
+
+    @property
+    def avg_cyclomatic_complexity(self) -> Optional[float]:
+        return (self.code_metrics_json or {}).get("avg_cyclomatic_complexity")
+
+    @property
+    def max_cyclomatic_complexity(self) -> Optional[int]:
+        return (self.code_metrics_json or {}).get("max_cyclomatic_complexity")
+
+    @property
+    def code_duplication_percentage(self) -> Optional[float]:
+        return (self.code_metrics_json or {}).get("code_duplication_percentage")
+
+    @property
+    def defect_density(self) -> Optional[float]:
+        return (self.code_metrics_json or {}).get("defect_density")
+
+    @property
+    def quality_grade(self) -> Optional[str]:
+        return (self.code_metrics_json or {}).get("quality_grade")
+
+    @property
+    def file_metrics_json(self) -> dict:
+        return dict(self.code_metrics_json or {})
+
+    @property
+    def code_findings_json(self) -> list:
+        return list(self.findings_json or [])
+
 
 class VulnerabilityCacheEntry(Base):
     __tablename__ = "vulnerability_cache_entries"

@@ -34,8 +34,6 @@ async def run_assessment(req: AssessmentRunRequest, current_user: User = Depends
         db_session=db
     )
 
-    BillingService.record_usage(db, current_user.org_id, "monthly_assessments", 1.0)
-
     audit = AuditLog(
         user_id=current_user.id,
         org_id=current_user.org_id,

@@ -44,8 +44,10 @@ class BitbucketService:
         params = {
             "client_id": self.client_id,
             "response_type": "code",
-            "state": state
+            "state": state,
         }
+        if redirect_uri:
+            params["redirect_uri"] = redirect_uri
         return f"{self.AUTH_URL}?{urlencode(params)}"
 
     def exchange_code_for_token(self, code: str, redirect_uri: str) -> Dict[str, Any]:

@@ -1,5 +1,6 @@
 import logging
 import asyncio
+import hashlib
 import os
 import uuid
 from datetime import datetime, timedelta
@@ -13,7 +14,7 @@ from app.database import SessionLocal
 from app.models.all_models import (
     ScheduledReview, ReviewJob, Project, TechnologyScore,
     RiskFinding, EvidenceSource, Assessment, AuditLog, DistributedLock,
-    RepositoryConnection, CodeFinding
+    RepositoryConnection, RepositoryAnalysisSnapshot, CodeFinding
 )
 from app.services.firecrawl_service import FirecrawlIntelligenceService
 from app.services.ai_analyzer import AITechnologyDebtAnalyzer
@@ -599,18 +600,37 @@ async def execute_project_review(
                 )
                 pending_evidence_records.append(ev_rec)
 
-            # Prepare Risk Findings
+            # Prepare Risk Findings (with deterministic fingerprint & triage carry-forward)
             for r in analysis.get("risks", []):
+                r_title = r.get("title", "")
+                fp = hashlib.sha256(
+                    f"{project.id}:{tech.id}:{r_title.strip().lower()}".encode("utf-8")
+                ).hexdigest()
+                prior_triaged = (
+                    db.query(RiskFinding)
+                    .filter(
+                        RiskFinding.project_id == project.id,
+                        RiskFinding.fingerprint == fp,
+                        RiskFinding.status.in_(["Accepted Risk", "Mitigated"]),
+                    )
+                    .order_by(RiskFinding.created_at.desc())
+                    .first()
+                )
                 risk_rec = RiskFinding(
                     assessment_id=assessment.id,
                     technology_id=tech.id,
                     project_id=project.id,
                     severity=r.get("severity", "Medium"),
-                    title=r.get("title", ""),
+                    title=r_title,
                     description=r.get("description", ""),
                     business_impact=r.get("business_impact", ""),
                     technical_impact=r.get("technical_impact", ""),
-                    status="Open"
+                    estimated_remediation_hours=float(r.get("estimated_remediation_hours", 4.0) or 4.0),
+                    fingerprint=fp,
+                    status=prior_triaged.status if prior_triaged else "Open",
+                    assigned_to=prior_triaged.assigned_to if prior_triaged else None,
+                    resolution_notes=prior_triaged.resolution_notes if prior_triaged else None,
+                    resolved_at=prior_triaged.resolved_at if prior_triaged else None,
                 )
                 pending_risk_records.append(risk_rec)
                 all_risks.append(r)
@@ -624,17 +644,70 @@ async def execute_project_review(
         # Stage 7: Checkpoint before composite project health score calculation
         verify_fenced_lease_stage("7_before_score_calculation")
 
-        # Commercial Source Code Analysis (if repository connected)
+        # Commercial Source Code Analysis (consumes durable RepositoryAnalysisSnapshot first,
+        # falling back to local_path if needed and persisting a snapshot so local_path is never required again)
         repo_conn = db.query(RepositoryConnection).filter(RepositoryConnection.project_id == project.id).first()
+        latest_snapshot = (
+            db.query(RepositoryAnalysisSnapshot)
+            .filter(RepositoryAnalysisSnapshot.project_id == project.id)
+            .order_by(RepositoryAnalysisSnapshot.created_at.desc())
+            .first()
+        )
         code_metrics = None
         code_findings_records = []
         raw_code_findings = []
+        snapshot_id: Optional[str] = None
+        snapshot_commit_sha: Optional[str] = repo_conn.commit_sha if repo_conn else None
+        snapshot_analyzer_version: Optional[str] = None
 
-        if repo_conn and repo_conn.local_path and os.path.exists(repo_conn.local_path):
+        if latest_snapshot is not None:
+            snapshot_id = latest_snapshot.id
+            snapshot_commit_sha = latest_snapshot.commit_sha
+            snapshot_analyzer_version = latest_snapshot.analyzer_version
+            extra_fm = latest_snapshot.file_metrics_json or {}
+            code_metrics = {
+                "lines_of_code": latest_snapshot.lines_of_code or 0,
+                "files_analyzed": latest_snapshot.files_analyzed or 0,
+                "files_examined": latest_snapshot.files_examined or 0,
+                "files_excluded": latest_snapshot.files_excluded or 0,
+                "test_files_count": latest_snapshot.test_files_count or 0,
+                "avg_cyclomatic_complexity": latest_snapshot.avg_cyclomatic_complexity or 1.0,
+                "max_cyclomatic_complexity": latest_snapshot.max_cyclomatic_complexity or 1,
+                "code_duplication_percentage": latest_snapshot.code_duplication_percentage or 0.0,
+                "maintainability_index": latest_snapshot.maintainability_index if latest_snapshot.maintainability_index is not None else 85.0,
+                "coverage_percentage": extra_fm.get("coverage_percentage"),
+            }
+            for cf_dict in (latest_snapshot.code_findings_json or []):
+                raw_code_findings.append(cf_dict)
+                rec = CodeFinding(
+                    assessment_id=assessment.id,
+                    project_id=project.id,
+                    file_path=cf_dict.get("file_path", ""),
+                    line_start=cf_dict.get("line_start", 1),
+                    line_end=cf_dict.get("line_end", 1),
+                    rule_id=cf_dict.get("rule_id", "GENERIC_FINDING"),
+                    category=cf_dict.get("category", "maintainability"),
+                    severity=cf_dict.get("severity", "Medium"),
+                    confidence=cf_dict.get("confidence", "High"),
+                    title=cf_dict.get("title", ""),
+                    explanation=cf_dict.get("explanation", ""),
+                    technical_evidence=cf_dict.get("technical_evidence", ""),
+                    why_it_matters=cf_dict.get("why_it_matters", ""),
+                    recommended_remediation=cf_dict.get("recommended_remediation", ""),
+                    estimated_remediation_hours=float(cf_dict.get("estimated_remediation_hours", 1.0) or 1.0),
+                    is_auto_verifiable=bool(cf_dict.get("is_auto_verifiable", False)),
+                    status="Open",
+                    analyzer_name="SourceCodeAnalyzer",
+                    analyzer_version=snapshot_analyzer_version or "v3.1.0",
+                )
+                code_findings_records.append(rec)
+        elif repo_conn and repo_conn.local_path and os.path.exists(repo_conn.local_path):
             try:
                 from app.services.source_code_analyzer import SourceCodeAnalyzer
                 analyzer = SourceCodeAnalyzer()
                 analysis_res = analyzer.analyze_directory(repo_conn.local_path)
+                snapshot_analyzer_version = "v3.1.0"
+                snapshot_commit_sha = repo_conn.commit_sha or f"local:{project.id[:16]}"
                 code_metrics = {
                     "lines_of_code": analysis_res.total_lines_of_code,
                     "files_analyzed": analysis_res.total_files,
@@ -663,9 +736,43 @@ async def execute_project_review(
                         why_it_matters=cf.why_it_matters,
                         recommended_remediation=cf.recommended_remediation,
                         estimated_remediation_hours=cf.estimated_remediation_hours,
-                        is_auto_verifiable=cf.is_auto_verifiable
+                        is_auto_verifiable=cf.is_auto_verifiable,
+                        status="Open",
+                        analyzer_name="SourceCodeAnalyzer",
+                        analyzer_version=snapshot_analyzer_version,
                     )
                     code_findings_records.append(rec)
+
+                # Persist durable snapshot so future assessments never depend on local_path
+                auto_snap = RepositoryAnalysisSnapshot(
+                    org_id=project.org_id,
+                    project_id=project.id,
+                    repo_connection_id=repo_conn.id,
+                    provider=repo_conn.provider or "local_upload",
+                    branch=repo_conn.selected_branch or repo_conn.branch or "main",
+                    commit_sha=snapshot_commit_sha,
+                    analyzer_version=snapshot_analyzer_version,
+                    files_examined=analysis_res.total_files,
+                    files_analyzed=analysis_res.total_files,
+                    files_excluded=0,
+                    lines_of_code=analysis_res.total_lines_of_code,
+                    code_metrics_json={
+                        "test_files_count": analysis_res.test_files_count,
+                        "maintainability_index": analysis_res.maintainability_index,
+                        "avg_cyclomatic_complexity": analysis_res.avg_complexity,
+                        "max_cyclomatic_complexity": analysis_res.max_complexity,
+                        "code_duplication_percentage": analysis_res.code_duplication_percentage,
+                        "defect_density": analysis_res.defect_density,
+                        "quality_grade": analysis_res.quality_grade,
+                        "hotspots": analysis_res.hotspots,
+                        "severity_breakdown": analysis_res.severity_breakdown,
+                        "category_remediation_hours": analysis_res.category_remediation_hours,
+                    },
+                    findings_json=raw_code_findings,
+                )
+                db.add(auto_snap)
+                db.flush()
+                snapshot_id = auto_snap.id
             except Exception as code_err:
                 logger.warning(f"Source code analysis failed for project {project.id}: {code_err}")
 
@@ -714,6 +821,11 @@ async def execute_project_review(
             # Single atomic commit for empty inventory assessment results and snapshot
             db.commit()
             db.refresh(assessment)
+            try:
+                from app.services.billing_service import BillingService
+                BillingService.record_usage(db, project.org_id, "monthly_assessments", 1)
+            except Exception as b_err:
+                logger.warning(f"Billing usage record warning on empty inventory: {b_err}")
             return assessment
 
         # Commercial 10-Dimension Technical Debt Scoring
@@ -724,6 +836,8 @@ async def execute_project_review(
                 {
                     "maintenance_health": s.maintenance_health,
                     "version_currency": s.version_currency,
+                    "security_exposure": s.security_exposure,
+                    "documentation_quality": s.documentation_quality,
                     "sustainability": s.sustainability,
                     "upgrade_complexity": s.upgrade_complexity,
                 }
@@ -754,6 +868,8 @@ async def execute_project_review(
                 "overall_health_score": avg_score,
                 "risk_classification": project_classification,
                 "confidence_level": debt_calc["confidence_level"],
+                "commit_sha": snapshot_commit_sha,
+                "analyzer_version": snapshot_analyzer_version,
                 "scoring_version": debt_calc["scoring_version"],
                 "technical_debt_ratio": debt_calc["technical_debt_ratio"],
                 "estimated_remediation_hours": debt_calc["estimated_remediation_hours"],
@@ -769,6 +885,16 @@ async def execute_project_review(
                 "performance_score": debt_calc["dimensional_scores"]["performance_indicators"],
                 "complexity_score": debt_calc["dimensional_scores"]["development_complexity"],
                 "upgrade_risk_score": debt_calc["dimensional_scores"]["upgrade_risk"],
+                "raw_output": {
+                    "snapshot_id": snapshot_id,
+                    "commit_sha": snapshot_commit_sha,
+                    "analyzer_version": snapshot_analyzer_version,
+                    "code_metrics": code_metrics,
+                    "code_findings": raw_code_findings,
+                    "dimensional_scores": debt_calc["dimensional_scores"],
+                    "missing_signals": debt_calc.get("missing_signals", []),
+                    "coverage_summary": debt_calc.get("coverage_summary", {}),
+                },
                 "status": "completed",
                 "summary": (
                     f"Commercial assessment completed (engine {debt_calc['scoring_version']}). "
@@ -1151,13 +1277,23 @@ def unregister_job_from_scheduler(schedule_id: str):
         logger.info(f"Removed review job from scheduler: {job_id}")
 
 def restore_all_scheduled_jobs():
-    """Restore all active recurring review jobs on application startup."""
+    """Restore all active recurring review jobs and prune stale inactive jobs."""
     db = SessionLocal()
     try:
         active_reviews = db.query(ScheduledReview).filter(ScheduledReview.is_active == True).all()
+        active_job_ids = {f"review_job_{r.id}" for r in active_reviews}
+
+        # Prune zombie APScheduler jobs that were deleted or deactivated in DB
+        for existing_job in list(scheduler.get_jobs()):
+            if existing_job.id.startswith("review_job_") and existing_job.id not in active_job_ids:
+                try:
+                    scheduler.remove_job(existing_job.id)
+                    logger.info(f"Pruned stale scheduled job: {existing_job.id}")
+                except Exception:
+                    pass
+
         for r in active_reviews:
             try:
-                # Update next run at
                 r.next_run_at = validate_and_compute_next_run(r.cron_expression)
                 register_job_in_scheduler(r)
             except Exception as e:
