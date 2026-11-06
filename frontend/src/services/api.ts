@@ -235,6 +235,24 @@ export const apiClient = {
     const res = await api.post('/billing/subscribe', payload);
     return res.data;
   },
+  getRazorpayConfig: async (): Promise<{ enabled: boolean; key_id: string; currency: string; vendor: string }> => {
+    const res = await api.get('/billing/razorpay/config');
+    return res.data;
+  },
+  createRazorpayOrder: async (payload: { plan_slug: string; billing_cycle?: string }) => {
+    const res = await api.post('/billing/razorpay/create-order', payload);
+    return res.data;
+  },
+  verifyRazorpayPayment: async (payload: {
+    plan_slug: string;
+    billing_cycle: string;
+    razorpay_order_id: string;
+    razorpay_payment_id: string;
+    razorpay_signature: string;
+  }) => {
+    const res = await api.post('/billing/razorpay/verify-payment', payload);
+    return res.data;
+  },
   cancelSubscription: async () => {
     const res = await api.post('/billing/cancel');
     return res.data;

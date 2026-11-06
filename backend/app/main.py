@@ -123,7 +123,8 @@ def health_check():
         "environment": settings.ENVIRONMENT,
         "api_version": "v1",
         "version": "3.0.0",
-        "supabase_configured": bool(settings.SUPABASE_URL and settings.SUPABASE_PUBLISHABLE_KEY)
+        "supabase_configured": bool(settings.SUPABASE_URL and settings.SUPABASE_PUBLISHABLE_KEY),
+        "razorpay_configured": bool(settings.RAZORPAY_KEY_ID and settings.RAZORPAY_KEY_SECRET)
     }
 
 @app.get("/live", tags=["Health"])

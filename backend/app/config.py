@@ -71,6 +71,12 @@ class Settings(BaseModel):
     SUPABASE_PUBLISHABLE_KEY: Optional[str] = ""
     SUPABASE_SERVICE_ROLE_KEY: Optional[str] = ""
 
+    # Razorpay Payment Gateway Integration
+    RAZORPAY_KEY_ID: Optional[str] = ""
+    RAZORPAY_KEY_SECRET: Optional[str] = ""
+    RAZORPAY_WEBHOOK_SECRET: Optional[str] = ""
+    RAZORPAY_CURRENCY: str = "USD"
+
     # AI Providers
     OPENAI_API_KEY: Optional[str] = ""
     GEMINI_API_KEY: Optional[str] = ""
@@ -100,6 +106,10 @@ class Settings(BaseModel):
         values.setdefault("SUPABASE_URL", os.getenv("SUPABASE_URL", ""))
         values.setdefault("SUPABASE_PUBLISHABLE_KEY", os.getenv("SUPABASE_PUBLISHABLE_KEY", ""))
         values.setdefault("SUPABASE_SERVICE_ROLE_KEY", os.getenv("SUPABASE_SERVICE_ROLE_KEY", ""))
+        values.setdefault("RAZORPAY_KEY_ID", os.getenv("RAZORPAY_KEY_ID", ""))
+        values.setdefault("RAZORPAY_KEY_SECRET", os.getenv("RAZORPAY_KEY_SECRET", ""))
+        values.setdefault("RAZORPAY_WEBHOOK_SECRET", os.getenv("RAZORPAY_WEBHOOK_SECRET", ""))
+        values.setdefault("RAZORPAY_CURRENCY", os.getenv("RAZORPAY_CURRENCY", "USD"))
         values.setdefault("ENCRYPTION_KEY", os.getenv("ENCRYPTION_KEY", ""))
         values.setdefault("OPENAI_API_KEY", os.getenv("OPENAI_API_KEY", ""))
         values.setdefault("GEMINI_API_KEY", os.getenv("GEMINI_API_KEY", ""))

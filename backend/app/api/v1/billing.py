@@ -276,3 +276,85 @@ async def stripe_webhook(request: Request, db: Session = Depends(get_db)):
     return result
 
 
+class RazorpayOrderRequest(BaseModel):
+    plan_slug: str
+    billing_cycle: str = "monthly"
+
+
+class RazorpayVerifyRequest(BaseModel):
+    plan_slug: str
+    billing_cycle: str = "monthly"
+    razorpay_order_id: str
+    razorpay_payment_id: str
+    razorpay_signature: str
+
+
+@router.get("/razorpay/config")
+def get_razorpay_config():
+    """Returns public Razorpay Checkout configuration (key_id & enabled state only)."""
+    return BillingService.get_razorpay_public_config()
+
+
+@router.post("/razorpay/create-order")
+def create_razorpay_order(
+    req: RazorpayOrderRequest,
+    current_user: User = Depends(require_roles(["SuperAdmin", "Owner", "Administrator"])),
+    db: Session = Depends(get_db),
+):
+    """Creates a live Razorpay Order for plan upgrade or downgrades directly if free."""
+    try:
+        return BillingService.create_razorpay_order(
+            db=db,
+            org_id=current_user.org_id,
+            plan_slug=req.plan_slug,
+            billing_cycle=req.billing_cycle,
+            user_email=current_user.email,
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@router.post("/razorpay/verify-payment")
+def verify_razorpay_payment(
+    req: RazorpayVerifyRequest,
+    current_user: User = Depends(require_roles(["SuperAdmin", "Owner", "Administrator"])),
+    db: Session = Depends(get_db),
+):
+    """Cryptographically verifies Razorpay Checkout signature and activates the subscription."""
+    try:
+        return BillingService.complete_razorpay_payment(
+            db=db,
+            org_id=current_user.org_id,
+            plan_slug=req.plan_slug,
+            billing_cycle=req.billing_cycle,
+            razorpay_order_id=req.razorpay_order_id,
+            razorpay_payment_id=req.razorpay_payment_id,
+            razorpay_signature=req.razorpay_signature,
+        )
+    except PermissionError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+
+
+@router.post("/razorpay/webhook")
+async def razorpay_webhook(request: Request, db: Session = Depends(get_db)):
+    """Receives and verifies Razorpay webhook events using X-Razorpay-Signature HMAC-SHA256."""
+    try:
+        body = await request.body()
+        payload = await request.json()
+    except Exception:
+        raise HTTPException(status_code=400, detail="Invalid request body")
+
+    sig_header = request.headers.get("x-razorpay-signature", "")
+    if not sig_header:
+        raise HTTPException(status_code=400, detail="Missing required X-Razorpay-Signature header")
+
+    if not BillingService.verify_razorpay_webhook_signature(payload_bytes=body, sig_header=sig_header):
+        raise HTTPException(status_code=400, detail="Invalid Razorpay webhook cryptographic signature")
+
+    event_id = request.headers.get("x-razorpay-event-id", "")
+    return BillingService.handle_razorpay_event(db=db, payload=payload, event_id=event_id)
+
+
+

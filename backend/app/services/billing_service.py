@@ -1,13 +1,18 @@
 import os
 import uuid
 import time
+import json
 import hmac
+import base64
 import hashlib
 import logging
+import urllib.request
+import urllib.error
 from datetime import datetime, timedelta
 from typing import Dict, Any, List, Optional, Tuple, Set
 from sqlalchemy.orm import Session
 
+from app.config import settings
 from app.models.all_models import (
     Organization, Subscription, SubscriptionPlan, UsageRecord, Invoice, User, Project, Notification
 )
@@ -21,12 +26,14 @@ class QuotaExceededError(Exception):
 class BillingService:
     """
     Commercial SaaS subscription management, usage metering, quota enforcement,
-    and Stripe billing integration engine.
+    and Razorpay & Stripe billing integration engine.
     """
 
     STRIPE_SECRET_KEY = os.getenv("STRIPE_SECRET_KEY", "")
     STRIPE_WEBHOOK_SECRET = os.getenv("STRIPE_WEBHOOK_SECRET", "whsec_test_secret_for_hmac_sha256")
+    RAZORPAY_ORDERS_URL = "https://api.razorpay.com/v1/orders"
     _processed_events: Set[str] = set()
+    _processed_payments: Set[str] = set()
 
     @classmethod
     def _ensure_standard_plans(cls, db: Session):
@@ -252,12 +259,13 @@ class BillingService:
         if not plan:
             raise ValueError(f"Subscription plan '{target_plan_id}' does not exist.")
 
+        normalized_cycle = "yearly" if billing_cycle in ("yearly", "annual") else "monthly"
         sub = cls.get_or_create_subscription(db, org_id)
         sub.plan_id = target_plan_id
-        sub.billing_cycle = billing_cycle
+        sub.billing_cycle = normalized_cycle
         sub.status = "active"
         sub.current_period_start = datetime.utcnow()
-        sub.current_period_end = datetime.utcnow() + timedelta(days=365 if billing_cycle == "yearly" else 30)
+        sub.current_period_end = datetime.utcnow() + timedelta(days=365 if normalized_cycle == "yearly" else 30)
         sub.cancel_at_period_end = False
 
         # Update organization plan string for backward compatibility
@@ -266,7 +274,7 @@ class BillingService:
             org.plan = target_plan_id
 
         # Generate invoice record
-        amount = plan.price_yearly_cents if billing_cycle == "yearly" else plan.price_monthly_cents
+        amount = plan.price_yearly_cents if normalized_cycle == "yearly" else plan.price_monthly_cents
         if amount > 0:
             inv = Invoice(
                 org_id=org_id,
@@ -598,7 +606,7 @@ class BillingService:
     </div>
     <div style="text-align: right;">
       <div style="font-size: 13px;"><strong>Date Issued:</strong> {date_str}</div>
-      <div style="font-size: 13px; margin-top: 4px;"><strong>Payment Method:</strong> Credit Card (Stripe)</div>
+      <div style="font-size: 13px; margin-top: 4px;"><strong>Payment Method:</strong> {'Razorpay (Card / UPI)' if (invoice.invoice_number or '').startswith('INV-RZP') or bool(settings.RAZORPAY_KEY_ID) else 'Credit Card (Stripe)'}</div>
     </div>
   </div>
 
@@ -622,11 +630,295 @@ class BillingService:
   </table>
 
   <div class="total">
-    Total Paid: ${amount_dollars:,.2f} USD
+    Total Paid: ${amount_dollars:,.2f} {(invoice.currency or 'usd').upper()}
   </div>
 </body>
 </html>
 """
+
+    # ==========================================================================
+    # Razorpay Live Checkout, Signature Verification & Webhook Engine
+    # ==========================================================================
+
+    @classmethod
+    def get_razorpay_credentials(cls) -> Tuple[str, str, str, str]:
+        key_id = os.getenv("RAZORPAY_KEY_ID") or (settings.RAZORPAY_KEY_ID or "")
+        key_secret = os.getenv("RAZORPAY_KEY_SECRET") or (settings.RAZORPAY_KEY_SECRET or "")
+        webhook_secret = os.getenv("RAZORPAY_WEBHOOK_SECRET") or (settings.RAZORPAY_WEBHOOK_SECRET or "")
+        currency = (os.getenv("RAZORPAY_CURRENCY") or settings.RAZORPAY_CURRENCY or "USD").upper()
+        return key_id.strip(), key_secret.strip(), webhook_secret.strip(), currency
+
+    @classmethod
+    def get_razorpay_public_config(cls) -> Dict[str, Any]:
+        """Returns public Razorpay Checkout config (NEVER exposes secret key)."""
+        key_id, key_secret, _, currency = cls.get_razorpay_credentials()
+        enabled = bool(key_id and key_secret)
+        return {
+            "enabled": enabled,
+            "key_id": key_id if enabled else "",
+            "currency": currency,
+            "vendor": "GT InnoX LLP",
+        }
+
+    @classmethod
+    def _post_razorpay_order(cls, key_id: str, key_secret: str, order_payload: Dict[str, Any]) -> Dict[str, Any]:
+        """Executes authenticated POST /v1/orders call to Razorpay Orders API."""
+        basic_token = base64.b64encode(f"{key_id}:{key_secret}".encode("utf-8")).decode("ascii")
+        req = urllib.request.Request(
+            cls.RAZORPAY_ORDERS_URL,
+            data=json.dumps(order_payload).encode("utf-8"),
+            headers={
+                "Authorization": f"Basic {basic_token}",
+                "Content-Type": "application/json",
+                "User-Agent": "TechDebtAI/3.0",
+            },
+            method="POST",
+        )
+        try:
+            with urllib.request.urlopen(req, timeout=20) as resp:
+                return json.loads(resp.read().decode("utf-8"))
+        except urllib.error.HTTPError as e:
+            err_body = e.read().decode("utf-8", errors="replace")
+            logger.error(f"Razorpay order creation HTTP {e.code}: {err_body}")
+            raise ValueError(f"Razorpay order creation failed ({e.code})") from e
+
+    @classmethod
+    def create_razorpay_order(
+        cls,
+        db: Session,
+        org_id: str,
+        plan_slug: str,
+        billing_cycle: str = "monthly",
+        user_email: str = "",
+    ) -> Dict[str, Any]:
+        """Creates a Razorpay Order for standard checkout or downgrades directly if free."""
+        cls._ensure_standard_plans(db)
+        plan = db.query(SubscriptionPlan).filter(SubscriptionPlan.id == plan_slug).first()
+        if not plan:
+            raise ValueError(f"Invalid plan '{plan_slug}'.")
+
+        normalized_cycle = "yearly" if billing_cycle in ("yearly", "annual") else "monthly"
+        amount_subunits = plan.price_yearly_cents if normalized_cycle == "yearly" else plan.price_monthly_cents
+
+        if plan.id == "free" or amount_subunits <= 0:
+            sub = cls.change_subscription_plan(db, org_id, "free", normalized_cycle)
+            return {
+                "mode": "free_downgrade",
+                "status": sub.status,
+                "plan_slug": sub.plan_id,
+                "message": "Subscription updated to Community Free tier.",
+            }
+
+        key_id, key_secret, _, currency = cls.get_razorpay_credentials()
+        if not key_id or not key_secret:
+            raise ValueError("Razorpay credentials are not configured on the server.")
+
+        receipt = f"tdai_{org_id[:8]}_{uuid.uuid4().hex[:10]}"[:40]
+        order_payload = {
+            "amount": int(amount_subunits),
+            "currency": currency,
+            "receipt": receipt,
+            "notes": {
+                "org_id": org_id,
+                "plan_slug": plan.id,
+                "billing_cycle": normalized_cycle,
+                "user_email": user_email,
+                "vendor": "GT InnoX LLP",
+            },
+        }
+        order = cls._post_razorpay_order(key_id, key_secret, order_payload)
+
+        return {
+            "mode": "live_razorpay",
+            "key_id": key_id,
+            "order_id": order["id"],
+            "amount": order["amount"],
+            "currency": order["currency"],
+            "receipt": order.get("receipt", receipt),
+            "plan_slug": plan.id,
+            "plan_name": plan.name,
+            "billing_cycle": normalized_cycle,
+            "vendor": "GT InnoX LLP",
+        }
+
+    @classmethod
+    def verify_razorpay_payment_signature(
+        cls,
+        razorpay_order_id: str,
+        razorpay_payment_id: str,
+        razorpay_signature: str,
+        secret: Optional[str] = None,
+    ) -> bool:
+        """
+        Cryptographically verifies Razorpay Checkout signature:
+        HMAC-SHA256(order_id + "|" + payment_id, key_secret).
+        """
+        _, default_secret, _, _ = cls.get_razorpay_credentials()
+        key_secret = (secret if secret is not None else default_secret).strip()
+        if not key_secret or not razorpay_order_id or not razorpay_payment_id or not razorpay_signature:
+            return False
+        msg = f"{razorpay_order_id}|{razorpay_payment_id}".encode("utf-8")
+        expected = hmac.new(key_secret.encode("utf-8"), msg, hashlib.sha256).hexdigest()
+        return hmac.compare_digest(expected, razorpay_signature.strip())
+
+    @classmethod
+    def complete_razorpay_payment(
+        cls,
+        db: Session,
+        org_id: str,
+        plan_slug: str,
+        billing_cycle: str,
+        razorpay_order_id: str,
+        razorpay_payment_id: str,
+        razorpay_signature: str,
+    ) -> Dict[str, Any]:
+        """Verifies Razorpay signature and activates organization subscription idempotently."""
+        if not cls.verify_razorpay_payment_signature(
+            razorpay_order_id=razorpay_order_id,
+            razorpay_payment_id=razorpay_payment_id,
+            razorpay_signature=razorpay_signature,
+        ):
+            raise PermissionError("Invalid Razorpay cryptographic payment signature.")
+
+        if razorpay_payment_id in cls._processed_payments:
+            sub = cls.get_or_create_subscription(db, org_id)
+            return {
+                "status": "already_processed",
+                "subscription_id": sub.id,
+                "plan_slug": sub.plan_id,
+                "payment_id": razorpay_payment_id,
+                "order_id": razorpay_order_id,
+            }
+
+        normalized_cycle = "yearly" if billing_cycle in ("yearly", "annual") else "monthly"
+        cls._ensure_standard_plans(db)
+        plan = db.query(SubscriptionPlan).filter(SubscriptionPlan.id == plan_slug).first()
+        if not plan:
+            raise ValueError(f"Subscription plan '{plan_slug}' does not exist.")
+
+        sub = cls.get_or_create_subscription(db, org_id)
+        sub.plan_id = plan.id
+        sub.billing_cycle = normalized_cycle
+        sub.status = "active"
+        sub.current_period_start = datetime.utcnow()
+        sub.current_period_end = datetime.utcnow() + timedelta(days=365 if normalized_cycle == "yearly" else 30)
+        sub.cancel_at_period_end = False
+        sub.stripe_customer_id = f"rzp_order:{razorpay_order_id}"
+        sub.stripe_subscription_id = f"rzp_pay:{razorpay_payment_id}"
+
+        org = db.query(Organization).filter(Organization.id == org_id).first()
+        if org:
+            org.plan = plan.id
+
+        _, _, _, currency = cls.get_razorpay_credentials()
+        amount = plan.price_yearly_cents if normalized_cycle == "yearly" else plan.price_monthly_cents
+        inv = Invoice(
+            org_id=org_id,
+            invoice_number=f"INV-RZP-{datetime.utcnow().strftime('%Y%m')}-{razorpay_payment_id[-6:].upper()}",
+            amount_cents=amount,
+            currency=currency.lower(),
+            status="paid",
+            paid_at=datetime.utcnow(),
+        )
+        db.add(inv)
+        db.flush()
+        inv.hosted_invoice_url = f"/api/v1/billing/invoices/{inv.id}/download"
+        db.commit()
+        db.refresh(sub)
+
+        cls._processed_payments.add(razorpay_payment_id)
+
+        return {
+            "status": "active",
+            "message": f"Payment verified! Upgraded to {plan.name} ({normalized_cycle}).",
+            "subscription_id": sub.id,
+            "plan_slug": sub.plan_id,
+            "invoice_id": inv.id,
+            "invoice_number": inv.invoice_number,
+            "payment_id": razorpay_payment_id,
+            "order_id": razorpay_order_id,
+        }
+
+    @classmethod
+    def verify_razorpay_webhook_signature(
+        cls,
+        payload_bytes: bytes,
+        sig_header: str,
+        secret: Optional[str] = None,
+    ) -> bool:
+        """Verifies X-Razorpay-Signature webhook HMAC-SHA256 header."""
+        _, key_secret, webhook_secret, _ = cls.get_razorpay_credentials()
+        signing_secret = (secret if secret is not None else (webhook_secret or key_secret)).strip()
+        if not signing_secret or not sig_header:
+            return False
+        expected = hmac.new(signing_secret.encode("utf-8"), payload_bytes, hashlib.sha256).hexdigest()
+        return hmac.compare_digest(expected, sig_header.strip())
+
+    @classmethod
+    def handle_razorpay_event(
+        cls,
+        db: Session,
+        payload: Dict[str, Any],
+        event_id: str = "",
+    ) -> Dict[str, Any]:
+        """Processes verified Razorpay webhook events idempotently."""
+        if event_id and event_id in cls._processed_events:
+            return {"status": "ignored", "reason": "duplicate_event", "event_id": event_id}
+
+        event_type = payload.get("event", "")
+        payment_entity = payload.get("payload", {}).get("payment", {}).get("entity", {})
+        order_entity = payload.get("payload", {}).get("order", {}).get("entity", {})
+        notes = payment_entity.get("notes") or order_entity.get("notes") or {}
+        if not isinstance(notes, dict):
+            notes = {}
+
+        org_id = notes.get("org_id")
+        plan_slug = notes.get("plan_slug") or "starter"
+        billing_cycle = notes.get("billing_cycle") or "monthly"
+        payment_id = payment_entity.get("id", "")
+        order_id = payment_entity.get("order_id") or order_entity.get("id", "")
+
+        action_taken = "none"
+
+        if event_type in ("payment.captured", "order.paid") and org_id:
+            if payment_id and payment_id in cls._processed_payments:
+                action_taken = "already_activated"
+            else:
+                cls._ensure_standard_plans(db)
+                sub = cls.change_subscription_plan(db, org_id, plan_slug, billing_cycle)
+                if order_id:
+                    sub.stripe_customer_id = f"rzp_order:{order_id}"
+                if payment_id:
+                    sub.stripe_subscription_id = f"rzp_pay:{payment_id}"
+                    cls._processed_payments.add(payment_id)
+                db.commit()
+                action_taken = "subscription_activated"
+
+        elif event_type == "payment.failed" and org_id:
+            sub = db.query(Subscription).filter(Subscription.org_id == org_id).first()
+            if sub:
+                sub.status = "past_due"
+                notif = Notification(
+                    org_id=org_id,
+                    title="Razorpay Subscription Payment Failed",
+                    message="Your recent Razorpay payment attempt failed. Please retry or update your payment method.",
+                    category="billing",
+                    severity="error",
+                )
+                db.add(notif)
+                db.commit()
+                action_taken = "subscription_past_due"
+
+        if event_id:
+            cls._processed_events.add(event_id)
+
+        return {
+            "status": "success",
+            "event_type": event_type,
+            "action": action_taken,
+            "event_id": event_id,
+        }
+
 
 
 

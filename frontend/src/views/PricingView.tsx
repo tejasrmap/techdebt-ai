@@ -1,10 +1,14 @@
 import React, { useState, useEffect } from 'react';
 import { apiClient } from '../services/api';
+import { loadRazorpayCheckoutScript } from '../services/razorpay';
 import { SubscriptionPlan, Subscription } from '../types';
 
 export const PricingView: React.FC = () => {
   const [plans, setPlans] = useState<SubscriptionPlan[]>([]);
   const [currentSub, setCurrentSub] = useState<Subscription | null>(null);
+  const [razorpayEnabled, setRazorpayEnabled] = useState<boolean>(
+    Boolean(import.meta.env.VITE_RAZORPAY_KEY_ID)
+  );
   const [billingCycle, setBillingCycle] = useState<'monthly' | 'annual'>('monthly');
   const [loading, setLoading] = useState(true);
   const [actionLoading, setActionLoading] = useState<string | null>(null);
@@ -17,12 +21,16 @@ export const PricingView: React.FC = () => {
   const loadData = async () => {
     setLoading(true);
     try {
-      const [plansData, subData] = await Promise.all([
+      const [plansData, subData, rzpConfig] = await Promise.all([
         apiClient.getPlans(),
         apiClient.getSubscription().catch(() => null),
+        apiClient.getRazorpayConfig ? apiClient.getRazorpayConfig().catch(() => null) : Promise.resolve(null),
       ]);
       setPlans(plansData);
       setCurrentSub(subData);
+      if (rzpConfig && typeof rzpConfig.enabled === 'boolean') {
+        setRazorpayEnabled(rzpConfig.enabled);
+      }
     } catch (err: any) {
       console.error('Failed to load plans:', err);
     } finally {
@@ -34,6 +42,60 @@ export const PricingView: React.FC = () => {
     setActionLoading(planSlug);
     setMessage(null);
     try {
+      if (razorpayEnabled && planSlug !== 'free' && apiClient.createRazorpayOrder) {
+        const sdkLoaded = await loadRazorpayCheckoutScript();
+        if (!sdkLoaded || !window.Razorpay) {
+          throw new Error('Unable to load Razorpay Checkout SDK. Please check your network connection.');
+        }
+
+        const orderRes = await apiClient.createRazorpayOrder({
+          plan_slug: planSlug,
+          billing_cycle: billingCycle,
+        });
+
+        if (orderRes.mode === 'live_razorpay' && orderRes.order_id) {
+          const rzp = new window.Razorpay({
+            key: orderRes.key_id || import.meta.env.VITE_RAZORPAY_KEY_ID,
+            amount: orderRes.amount,
+            currency: orderRes.currency,
+            name: 'TechDebt AI',
+            description: `${orderRes.plan_name} (${billingCycle} subscription)`,
+            order_id: orderRes.order_id,
+            theme: { color: '#4f46e5' },
+            handler: async (paymentResp) => {
+              try {
+                const verifyRes = await apiClient.verifyRazorpayPayment({
+                  plan_slug: planSlug,
+                  billing_cycle: billingCycle,
+                  razorpay_order_id: paymentResp.razorpay_order_id,
+                  razorpay_payment_id: paymentResp.razorpay_payment_id,
+                  razorpay_signature: paymentResp.razorpay_signature,
+                });
+                setMessage({
+                  text: verifyRes.message || `Payment verified! Upgraded to ${orderRes.plan_name}.`,
+                  type: 'success',
+                });
+                await loadData();
+              } catch (verifyErr: any) {
+                setMessage({
+                  text: verifyErr.response?.data?.detail || 'Payment signature verification failed.',
+                  type: 'error',
+                });
+              } finally {
+                setActionLoading(null);
+              }
+            },
+            modal: {
+              ondismiss: () => {
+                setActionLoading(null);
+              },
+            },
+          });
+          rzp.open();
+          return;
+        }
+      }
+
       const res = await apiClient.subscribeOrUpgrade({
         plan_slug: planSlug,
         billing_cycle: billingCycle,
@@ -47,12 +109,12 @@ export const PricingView: React.FC = () => {
         });
         await loadData();
       }
+      setActionLoading(null);
     } catch (err: any) {
       setMessage({
-        text: err.response?.data?.detail || 'Failed to update subscription',
+        text: err.response?.data?.detail || err.message || 'Failed to update subscription',
         type: 'error',
       });
-    } finally {
       setActionLoading(null);
     }
   };
@@ -101,6 +163,13 @@ export const PricingView: React.FC = () => {
             </span>
           </span>
         </div>
+        {razorpayEnabled && (
+          <div className="mt-4 inline-flex items-center gap-2 px-3 py-1 rounded-full bg-indigo-50 border border-indigo-100 text-xs font-medium text-indigo-700">
+            <span>Secured by Razorpay</span>
+            <span aria-hidden="true">&bull;</span>
+            <span>Cards, UPI &amp; International Checkout</span>
+          </div>
+        )}
       </div>
 
       {message && (
