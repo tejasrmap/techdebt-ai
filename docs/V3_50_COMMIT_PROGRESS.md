@@ -513,8 +513,19 @@
 - **Tests Executed:** `pytest backend/tests/test_postgresql_migration_and_isolation.py`.
 - **Test Results:** 3 passed, 0 failed.
 - **Documentation Updated:** `docs/V3_50_COMMIT_PROGRESS.md`.
-- **Commit Hash:** `95a6eb6`.
+- **Commit Hash:** `0cb800f`.
 - **Remaining Issues:** Proceed to Commit 42 (Harden scheduler leases transactions and concurrent execution).
+
+### COMMIT 42
+- **Title:** `fix: harden scheduler leases transactions and concurrent execution`
+- **Scope:** Distributed lock leasing, monotonic fencing generation increments, atomic lease renewal, background heartbeat loss detection, zero premature transaction commits during fencing verification, and generation-enforced lock release.
+- **Files Changed:** `backend/app/services/scheduler_service.py`, `backend/tests/test_scheduler_leases_and_concurrency.py`, `docs/V3_50_COMMIT_PROGRESS.md`.
+- **Implementation Summary:** Hardened distributed locking with strict monotonic generation tokens. Verified that `verify_ownership_short_transaction` and intermediate stage checks never prematurely commit caller sessions, preserving pending database transactions and row locks. Added 5 comprehensive automated concurrency and lease tests verifying mutual exclusion between competing workers, monotonic generation increments upon expired lease reclamation, zero caller transaction commitment side-effects, automatic lost-lock detection in background heartbeats, and generation-enforced lock release.
+- **Tests Executed:** `pytest backend/tests/test_scheduler_leases_and_concurrency.py`.
+- **Test Results:** 5 passed, 0 failed.
+- **Documentation Updated:** `docs/V3_50_COMMIT_PROGRESS.md`.
+- **Commit Hash:** `af607a1`.
+- **Remaining Issues:** Proceed to Commit 43 (Implement monitoring logging and operational observability).
 
 
 
