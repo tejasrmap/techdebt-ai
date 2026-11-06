@@ -17,8 +17,8 @@
 | **05** | `fix: implement strict organization authorization and tenant isolation` | **COMPLETE** | `backend/app/api/v1/dashboard.py`, `backend/tests/test_tenant_authorization_matrix.py` | Pytest (20 security tests) | PASS (20 passed) | `41562a4` |
 | **06** | `feat: complete role-based access control` | **COMPLETE** | `backend/app/services/auth_service.py`, `backend/tests/test_rbac_matrix.py` | Pytest (test_rbac_matrix) | PASS (7 passed) | `4fa3705` |
 | **07** | `feat: complete organization and workspace management` | **COMPLETE** | `backend/app/api/v1/organizations.py`, `backend/app/api/v1/__init__.py`, `backend/app/api/v1/auth.py`, `backend/tests/test_organization_management.py` | Pytest (test_organization_management) | PASS (1 passed) | `66d3943` |
-| **08** | `feat: implement team invitations and member management` | **COMPLETE** | `backend/app/api/v1/organizations.py`, `backend/app/api/v1/teams.py`, `backend/tests/test_team_and_member_management.py` | Pytest (team/member tests) | PASS (3 passed) | Pending |
-| **09** | `feat: implement project access control and collaboration` | Planned | - | - | - | - |
+| **08** | `feat: implement team invitations and member management` | **COMPLETE** | `backend/app/api/v1/organizations.py`, `backend/app/api/v1/teams.py`, `backend/tests/test_team_and_member_management.py` | Pytest (team/member tests) | PASS (3 passed) | `58c2760` |
+| **09** | `feat: implement project access control and collaboration` | **COMPLETE** | `backend/app/models/all_models.py`, `backend/app/schemas/schemas.py`, `backend/app/api/v1/projects.py`, `backend/tests/test_project_collaboration_and_archival.py` | Pytest (collab/archive, api) | PASS (8 passed) | Pending |
 | **10** | `test: validate authentication authorization and multi-tenant security` | Planned | - | - | - | - |
 | **11** | `feat: implement secure GitHub App integration` | Planned | - | - | - | - |
 | **12** | `feat: implement GitLab repository integration` | Planned | - | - | - | - |
@@ -150,5 +150,16 @@
 - **Tests Executed:** `pytest tests/test_team_and_member_management.py`.
 - **Test Results:** 3 passed, 0 failed.
 - **Documentation Updated:** `docs/V3_50_COMMIT_PROGRESS.md`.
-- **Commit Hash:** Assigned upon commit.
+- **Commit Hash:** `58c2760`.
 - **Remaining Issues:** Proceed to Commit 09 (Project access control and collaboration).
+
+### COMMIT 09
+- **Title:** `feat: implement project access control and collaboration`
+- **Scope:** Project archival and restoration, project audit activity logs, team project permission assignment and revocation.
+- **Files Changed:** `backend/app/models/all_models.py`, `backend/app/schemas/schemas.py`, `backend/app/api/v1/projects.py`, `backend/tests/conftest.py`, `backend/tests/test_project_collaboration_and_archival.py`, `docs/V3_50_COMMIT_PROGRESS.md`.
+- **Implementation Summary:** Extended `Project` model with `is_archived` and `archived_at` columns. Added `include_archived` filter support to `GET /projects`. Implemented `POST /projects/{id}/archive` and `POST /projects/{id}/restore` endpoints. Added project audit log inspection `GET /projects/{id}/activity` and team-project permission management endpoints `GET /projects/{id}/permissions`, `POST /projects/{id}/permissions`, and `DELETE /projects/{id}/permissions/{team_id}`.
+- **Tests Executed:** `pytest tests/test_project_collaboration_and_archival.py tests/test_api.py`.
+- **Test Results:** 8 passed, 0 failed.
+- **Documentation Updated:** `docs/V3_50_COMMIT_PROGRESS.md`.
+- **Commit Hash:** Assigned upon commit.
+- **Remaining Issues:** Proceed to Commit 10 (Validate authentication authorization and multi-tenant security).

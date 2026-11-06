@@ -103,6 +103,8 @@ class Project(Base):
     created_at = Column(DateTime, default=datetime.utcnow, index=True)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
     last_assessment_date = Column(DateTime, nullable=True)
+    is_archived = Column(Boolean, default=False, index=True)
+    archived_at = Column(DateTime, nullable=True)
 
     organization = relationship("Organization", back_populates="projects")
     project_technologies = relationship("ProjectTechnology", back_populates="project", cascade="all, delete-orphan")

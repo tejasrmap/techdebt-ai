@@ -124,6 +124,7 @@ class ProjectResponse(BaseModel):
     technology_count: Optional[int] = 0
     health_score: Optional[float] = None  # None when unassessed (avoids misleading 100)
     risk_classification: Optional[str] = None
+    is_archived: bool = False
     model_config = {"from_attributes": True}
 
 # --- Technology ---

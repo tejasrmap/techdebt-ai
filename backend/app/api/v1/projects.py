@@ -1,16 +1,29 @@
-from fastapi import APIRouter, Depends, HTTPException, status
+from typing import List, Optional
+from datetime import datetime
+from fastapi import APIRouter, Depends, HTTPException, status, Query
+from pydantic import BaseModel
 from sqlalchemy.orm import Session
-from typing import List
 from app.database import get_db
-from app.models.all_models import Project, User, ProjectTechnology, Assessment, AuditLog
+from app.models.all_models import Project, User, ProjectTechnology, Assessment, AuditLog, ProjectTeamPermission, Team
 from app.schemas.schemas import ProjectCreate, ProjectUpdate, ProjectResponse
-from app.services.auth_service import get_current_user, require_roles
+from app.services.auth_service import get_current_user, require_roles, UserRole
 
 router = APIRouter(prefix="/projects", tags=["Projects"])
 
+class ProjectTeamAssignmentRequest(BaseModel):
+    team_id: str
+    permission_level: str = "write"  # admin, write, read
+
 @router.get("", response_model=List[ProjectResponse])
-def get_projects(current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
-    projects = db.query(Project).filter(Project.org_id == current_user.org_id).order_by(Project.created_at.desc()).all()
+def get_projects(
+    include_archived: bool = Query(False),
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    query = db.query(Project).filter(Project.org_id == current_user.org_id)
+    if not include_archived:
+        query = query.filter(Project.is_archived == False)
+    projects = query.order_by(Project.created_at.desc()).all()
     results = []
     for p in projects:
         tech_count = db.query(ProjectTechnology).filter(ProjectTechnology.project_id == p.id).count()
@@ -20,7 +33,6 @@ def get_projects(current_user: User = Depends(get_current_user), db: Session = D
             .order_by(Assessment.created_at.desc())
             .first()
         )
-        # Avoid misleading 100 score for unassessed projects!
         results.append({
             "id": p.id,
             "org_id": p.org_id,
@@ -35,7 +47,8 @@ def get_projects(current_user: User = Depends(get_current_user), db: Session = D
             "last_assessment_date": p.last_assessment_date,
             "technology_count": tech_count,
             "health_score": latest_assessment.overall_health_score if latest_assessment else None,
-            "risk_classification": latest_assessment.risk_classification if latest_assessment else "Not Assessed"
+            "risk_classification": latest_assessment.risk_classification if latest_assessment else "Not Assessed",
+            "is_archived": getattr(p, "is_archived", False)
         })
     return results
 
@@ -131,7 +144,8 @@ def get_project(project_id: str, current_user: User = Depends(get_current_user),
         "last_assessment_date": p.last_assessment_date,
         "technology_count": tech_count,
         "health_score": latest_assessment.overall_health_score if latest_assessment else None,
-        "risk_classification": latest_assessment.risk_classification if latest_assessment else "Not Assessed"
+        "risk_classification": latest_assessment.risk_classification if latest_assessment else "Not Assessed",
+        "is_archived": getattr(p, "is_archived", False)
     }
 
 @router.put("/{project_id}", response_model=ProjectResponse)
@@ -202,3 +216,196 @@ def delete_project(
     db.delete(p)
     db.commit()
     return None
+
+@router.post("/{project_id}/archive")
+def archive_project(
+    project_id: str,
+    current_user: User = Depends(require_roles([UserRole.SUPER_ADMIN, UserRole.OWNER, UserRole.ADMINISTRATOR, UserRole.ENGINEERING_MANAGER])),
+    db: Session = Depends(get_db)
+):
+    """Archive a project to hide it from active views without deleting historical data."""
+    p = db.query(Project).filter(Project.id == project_id, Project.org_id == current_user.org_id).first()
+    if not p:
+        raise HTTPException(status_code=404, detail="Project not found or unauthorized")
+
+    p.is_archived = True
+    p.archived_at = datetime.utcnow()
+
+    audit = AuditLog(
+        user_id=current_user.id,
+        org_id=current_user.org_id,
+        action="project.archived",
+        resource_type="project",
+        resource_id=p.id,
+        details={"project_name": p.name}
+    )
+    db.add(audit)
+    db.commit()
+
+    return {"message": f"Project '{p.name}' archived successfully", "is_archived": True}
+
+@router.post("/{project_id}/restore")
+def restore_project(
+    project_id: str,
+    current_user: User = Depends(require_roles([UserRole.SUPER_ADMIN, UserRole.OWNER, UserRole.ADMINISTRATOR, UserRole.ENGINEERING_MANAGER])),
+    db: Session = Depends(get_db)
+):
+    """Restore an archived project back to active status."""
+    p = db.query(Project).filter(Project.id == project_id, Project.org_id == current_user.org_id).first()
+    if not p:
+        raise HTTPException(status_code=404, detail="Project not found or unauthorized")
+
+    p.is_archived = False
+    p.archived_at = None
+
+    audit = AuditLog(
+        user_id=current_user.id,
+        org_id=current_user.org_id,
+        action="project.restored",
+        resource_type="project",
+        resource_id=p.id,
+        details={"project_name": p.name}
+    )
+    db.add(audit)
+    db.commit()
+
+    return {"message": f"Project '{p.name}' restored successfully", "is_archived": False}
+
+@router.get("/{project_id}/activity")
+def get_project_activity(
+    project_id: str,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """Retrieve activity audit log specifically for this project."""
+    p = db.query(Project).filter(Project.id == project_id, Project.org_id == current_user.org_id).first()
+    if not p:
+        raise HTTPException(status_code=404, detail="Project not found or unauthorized")
+
+    logs = (
+        db.query(AuditLog)
+        .filter(
+            AuditLog.org_id == current_user.org_id,
+            (AuditLog.resource_id == project_id) | (AuditLog.resource_type == "project")
+        )
+        .order_by(AuditLog.created_at.desc())
+        .limit(50)
+        .all()
+    )
+
+    return [
+        {
+            "id": l.id,
+            "action": l.action,
+            "user_id": l.user_id,
+            "details": l.details,
+            "created_at": l.created_at.isoformat() if l.created_at else None
+        }
+        for l in logs
+    ]
+
+@router.get("/{project_id}/permissions")
+def list_project_team_permissions(
+    project_id: str,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """List teams assigned to this project and their permission levels."""
+    p = db.query(Project).filter(Project.id == project_id, Project.org_id == current_user.org_id).first()
+    if not p:
+        raise HTTPException(status_code=404, detail="Project not found or unauthorized")
+
+    perms = (
+        db.query(ProjectTeamPermission, Team)
+        .join(Team, ProjectTeamPermission.team_id == Team.id)
+        .filter(ProjectTeamPermission.project_id == project_id)
+        .all()
+    )
+
+    return [
+        {
+            "team_id": t.id,
+            "team_name": t.name,
+            "permission_level": ptp.permission,
+            "assigned_at": ptp.created_at.isoformat() if ptp.created_at else None
+        }
+        for ptp, t in perms
+    ]
+
+@router.post("/{project_id}/permissions")
+def assign_team_project_permission(
+    project_id: str,
+    req: ProjectTeamAssignmentRequest,
+    current_user: User = Depends(require_roles([UserRole.SUPER_ADMIN, UserRole.OWNER, UserRole.ADMINISTRATOR, UserRole.ENGINEERING_MANAGER])),
+    db: Session = Depends(get_db)
+):
+    """Assign or update a team's permission on this project."""
+    p = db.query(Project).filter(Project.id == project_id, Project.org_id == current_user.org_id).first()
+    if not p:
+        raise HTTPException(status_code=404, detail="Project not found or unauthorized")
+
+    team = db.query(Team).filter(Team.id == req.team_id, Team.org_id == current_user.org_id).first()
+    if not team:
+        raise HTTPException(status_code=404, detail="Team not found in organization")
+
+    perm = db.query(ProjectTeamPermission).filter(
+        ProjectTeamPermission.project_id == project_id,
+        ProjectTeamPermission.team_id == req.team_id
+    ).first()
+
+    if perm:
+        perm.permission = req.permission_level
+    else:
+        perm = ProjectTeamPermission(
+            project_id=project_id,
+            team_id=req.team_id,
+            permission=req.permission_level
+        )
+        db.add(perm)
+
+    audit = AuditLog(
+        user_id=current_user.id,
+        org_id=current_user.org_id,
+        action="project.permission_assigned",
+        resource_type="project",
+        resource_id=p.id,
+        details={"team_name": team.name, "permission_level": req.permission_level}
+    )
+    db.add(audit)
+    db.commit()
+
+    return {"message": f"Assigned team '{team.name}' with permission '{req.permission_level}'"}
+
+@router.delete("/{project_id}/permissions/{team_id}")
+def revoke_team_project_permission(
+    project_id: str,
+    team_id: str,
+    current_user: User = Depends(require_roles([UserRole.SUPER_ADMIN, UserRole.OWNER, UserRole.ADMINISTRATOR, UserRole.ENGINEERING_MANAGER])),
+    db: Session = Depends(get_db)
+):
+    """Revoke a team's permission on this project."""
+    p = db.query(Project).filter(Project.id == project_id, Project.org_id == current_user.org_id).first()
+    if not p:
+        raise HTTPException(status_code=404, detail="Project not found or unauthorized")
+
+    perm = db.query(ProjectTeamPermission).filter(
+        ProjectTeamPermission.project_id == project_id,
+        ProjectTeamPermission.team_id == team_id
+    ).first()
+    if not perm:
+        raise HTTPException(status_code=404, detail="Team does not have permission on this project")
+
+    db.delete(perm)
+
+    audit = AuditLog(
+        user_id=current_user.id,
+        org_id=current_user.org_id,
+        action="project.permission_revoked",
+        resource_type="project",
+        resource_id=p.id,
+        details={"team_id": team_id}
+    )
+    db.add(audit)
+    db.commit()
+
+    return {"message": "Team permission revoked from project"}
