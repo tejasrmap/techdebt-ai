@@ -53,13 +53,19 @@ def register(req: UserRegister, request: Request, db: Session = Depends(get_db))
     db.commit()
     db.refresh(org)
 
+    raw_verif_token = secrets.token_urlsafe(32)
+    verif_token_hash = hashlib.sha256(raw_verif_token.encode("utf-8")).hexdigest()
+
     # 3. Security: Creator of an organization is ALWAYS an Administrator. No public role selection.
     user = User(
         email=req.email.lower(),
         hashed_password=get_password_hash(req.password),
         full_name=req.full_name.strip(),
         org_id=org.id,
-        role="Administrator"
+        role="Administrator",
+        is_verified=False,
+        verification_token=verif_token_hash,
+        verification_token_expires_at=datetime.utcnow() + timedelta(hours=24)
     )
     db.add(user)
     
@@ -86,6 +92,8 @@ def register(req: UserRegister, request: Request, db: Session = Depends(get_db))
             "role": user.role,
             "org_id": user.org_id,
             "organization_name": org.name,
+            "is_verified": user.is_verified,
+            "is_active": user.is_active,
             "created_at": user.created_at
         }
     }
@@ -129,6 +137,8 @@ def login(req: UserLogin, request: Request, db: Session = Depends(get_db)):
             "role": user.role,
             "org_id": user.org_id,
             "organization_name": user.organization.name if user.organization else "",
+            "is_verified": user.is_verified,
+            "is_active": user.is_active,
             "created_at": user.created_at
         }
     }
@@ -372,6 +382,8 @@ def accept_invitation(
             "role": user.role,
             "org_id": user.org_id,
             "organization_name": user.organization.name if user.organization else "",
+            "is_verified": user.is_verified,
+            "is_active": user.is_active,
             "created_at": user.created_at
         }
     }
@@ -409,29 +421,51 @@ class MFAVerifyRequest(BaseModel):
 
 @router.post("/verify-email")
 def verify_email(req: VerifyEmailRequest, db: Session = Depends(get_db)):
-    """Verifies a user's email address using a single-use verification token."""
-    user = db.query(User).filter(User.verification_token == req.token).first()
+    """Verifies a user's email address using a cryptographically secure, single-use token."""
+    if not req.token or len(req.token.strip()) < 16:
+        raise HTTPException(status_code=400, detail="Invalid or expired verification token")
+
+    token_hash = hashlib.sha256(req.token.strip().encode("utf-8")).hexdigest()
+    user = db.query(User).filter(User.verification_token == token_hash).first()
     if not user:
-        raise HTTPException(status_code=400, detail="Invalid verification token")
+        raise HTTPException(status_code=400, detail="Invalid or expired verification token")
+
     if user.verification_token_expires_at and user.verification_token_expires_at < datetime.utcnow():
+        user.verification_token = None
+        user.verification_token_expires_at = None
+        db.commit()
         raise HTTPException(status_code=400, detail="Verification token has expired")
 
     user.is_verified = True
     user.verification_token = None
     user.verification_token_expires_at = None
+    
+    audit = AuditLog(
+        user_id=user.id,
+        org_id=user.org_id,
+        action="auth.email_verified",
+        resource_type="user",
+        resource_id=user.id,
+        details={"email": user.email}
+    )
+    db.add(audit)
     db.commit()
-    return {"message": "Email successfully verified"}
+    return {"message": "Email successfully verified", "is_verified": True}
 
 @router.post("/resend-verification")
-def resend_verification(current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
-    """Generates a fresh email verification token."""
+def resend_verification(request: Request, current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    """Generates a fresh email verification token without leaking token to public output."""
+    client_ip = request.client.host if request.client else "unknown"
+    rate_limiter.check_rate_limit(f"resend_verif:{client_ip}:{current_user.id}", max_requests=5, window_seconds=300)
+
     if current_user.is_verified:
-        return {"message": "Email is already verified"}
-    token = secrets.token_urlsafe(32)
-    current_user.verification_token = token
+        return {"message": "Email is already verified", "is_verified": True}
+
+    raw_token = secrets.token_urlsafe(32)
+    current_user.verification_token = hashlib.sha256(raw_token.encode("utf-8")).hexdigest()
     current_user.verification_token_expires_at = datetime.utcnow() + timedelta(hours=24)
     db.commit()
-    return {"message": "Verification token generated", "token": token}
+    return {"message": "A verification link has been dispatched to your email address."}
 
 @router.post("/forgot-password")
 def forgot_password(req: ForgotPasswordRequest, request: Request, db: Session = Depends(get_db)):
@@ -535,13 +569,25 @@ def change_password(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
-    """Change account password."""
+    """Change account password securely and record audit event."""
     if not verify_password(req.current_password, current_user.hashed_password):
         raise HTTPException(status_code=400, detail="Incorrect current password")
     if len(req.new_password) < 8:
         raise HTTPException(status_code=400, detail="New password must be at least 8 characters long")
+    if req.current_password == req.new_password:
+        raise HTTPException(status_code=400, detail="New password cannot be identical to current password")
 
     current_user.hashed_password = get_password_hash(req.new_password)
+    
+    audit = AuditLog(
+        user_id=current_user.id,
+        org_id=current_user.org_id,
+        action="auth.password_changed",
+        resource_type="user",
+        resource_id=current_user.id,
+        details={"email": current_user.email}
+    )
+    db.add(audit)
     db.commit()
     return {"message": "Password changed successfully"}
 

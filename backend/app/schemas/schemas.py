@@ -37,6 +37,8 @@ class UserResponse(BaseModel):
     role: str
     org_id: str
     organization_name: Optional[str] = None
+    is_verified: bool = False
+    is_active: bool = True
     created_at: datetime
     model_config = {"from_attributes": True}
 

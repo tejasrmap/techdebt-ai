@@ -11,8 +11,8 @@
 | # | Commit Title | Status | Files Changed | Tests Run | Pass/Fail | Git Hash |
 |---|---|---|---|---|---|---|
 | **01** | `chore: establish v3.0.0 development branch and architecture inventory` | **COMPLETE** | `docs/V3_*`, `tests/conftest.py` | Pytest, Vitest, tsc | PASS (4 passed, tsc 0, backend baseline) | `7614127` |
-| **02** | `fix: resolve critical password reset and account security vulnerabilities` | **COMPLETE** | `backend/app/api/v1/auth.py`, `backend/app/services/rate_limiter.py`, `backend/tests/test_password_reset.py` | Pytest (test_password_reset, test_api) | PASS (10 passed) | Pending |
-| **03** | `feat: implement email verification and secure account lifecycle` | Planned | - | - | - | - |
+| **02** | `fix: resolve critical password reset and account security vulnerabilities` | **COMPLETE** | `backend/app/api/v1/auth.py`, `backend/app/services/rate_limiter.py`, `backend/tests/test_password_reset.py` | Pytest (test_password_reset, test_api) | PASS (10 passed) | `a94e8c2` |
+| **03** | `feat: implement email verification and secure account lifecycle` | **COMPLETE** | `backend/app/api/v1/auth.py`, `backend/app/schemas/schemas.py`, `backend/tests/test_email_verification_and_lifecycle.py` | Pytest (lifecycle, reset, api) | PASS (12 passed) | Pending |
 | **04** | `fix: secure credentials sessions and sensitive configuration` | Planned | - | - | - | - |
 | **05** | `fix: implement strict organization authorization and tenant isolation` | Planned | - | - | - | - |
 | **06** | `feat: complete role-based access control` | Planned | - | - | - | - |
@@ -84,5 +84,16 @@
 - **Tests Executed:** `pytest tests/test_password_reset.py`, `pytest tests/test_api.py`.
 - **Test Results:** 10 passed, 0 failed.
 - **Documentation Updated:** `docs/V3_50_COMMIT_PROGRESS.md`.
+- **Commit Hash:** `a94e8c2`.
+- **Remaining Issues:** Proceed to Commit 03.
+
+### COMMIT 03
+- **Title:** `feat: implement email verification and secure account lifecycle`
+- **Scope:** Account registration verification, cryptographically secure verification tokens, single-use token consumption, safe resend verification, password change workflow with identical password rejection and audit logging.
+- **Files Changed:** `backend/app/api/v1/auth.py`, `backend/app/schemas/schemas.py`, `backend/tests/test_email_verification_and_lifecycle.py`, `docs/V3_50_COMMIT_PROGRESS.md`.
+- **Implementation Summary:** Implemented initial unverified status on registration, generating SHA-256 hashed verification tokens with 24h expiration. Enforced single-use verification in `/verify-email`. Secured `/resend-verification` behind sliding-window rate limiting without leaking plaintext tokens. Added strict checks in `/change-password` preventing identical passwords and recording audit entries. Updated `UserResponse` with `is_verified` and `is_active` fields. Added 2 comprehensive lifecycle tests.
+- **Tests Executed:** `pytest tests/test_email_verification_and_lifecycle.py tests/test_password_reset.py tests/test_api.py`.
+- **Test Results:** 12 passed, 0 failed.
+- **Documentation Updated:** `docs/V3_50_COMMIT_PROGRESS.md`.
 - **Commit Hash:** Assigned upon commit.
-- **Remaining Issues:** Proceed to Commit 03 (Email verification and secure account lifecycle).
+- **Remaining Issues:** Proceed to Commit 04 (Secure credentials sessions and sensitive configuration).
