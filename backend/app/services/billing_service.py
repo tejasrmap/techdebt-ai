@@ -91,8 +91,8 @@ class BillingService:
                 plan = SubscriptionPlan(**p_data)
                 db.add(plan)
             else:
-                existing.max_projects = p_data["max_projects"]
-                existing.name = p_data["name"]
+                for k, v in p_data.items():
+                    setattr(existing, k, v)
         db.commit()
 
     @classmethod

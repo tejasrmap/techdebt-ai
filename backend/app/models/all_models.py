@@ -541,6 +541,18 @@ class SubscriptionPlan(Base):
     def slug(self) -> str:
         return self.id
 
+    @property
+    def price_monthly(self) -> float:
+        return (self.price_monthly_cents or 0) / 100.0
+
+    @property
+    def price_annual(self) -> float:
+        return (self.price_yearly_cents or 0) / 100.0
+
+    @property
+    def max_assessments_per_month(self) -> int:
+        return self.max_monthly_assessments
+
 class Subscription(Base):
     __tablename__ = "subscriptions"
 
@@ -591,6 +603,30 @@ class Invoice(Base):
     pdf_url = Column(String(500), default="")
     paid_at = Column(DateTime, nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow, index=True)
+
+    @property
+    def amount_due(self) -> float:
+        return (self.amount_cents or 0) / 100.0
+
+    @property
+    def amount_paid(self) -> float:
+        return (self.amount_cents or 0) / 100.0 if self.status == "paid" else 0.0
+
+    @property
+    def invoice_pdf(self) -> str:
+        return self.pdf_url or self.hosted_invoice_url
+
+    @property
+    def stripe_invoice_id(self) -> str:
+        return getattr(self, "_stripe_invoice_id", "")
+
+    @property
+    def period_start(self) -> Optional[datetime]:
+        return self.created_at
+
+    @property
+    def period_end(self) -> Optional[datetime]:
+        return self.created_at
 
     organization = relationship("Organization", back_populates="invoices")
 

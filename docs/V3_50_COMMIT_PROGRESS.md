@@ -392,8 +392,20 @@
 - **Tests Executed:** `pytest backend/tests/test_ai_usage_metering.py`.
 - **Test Results:** 3 passed, 0 failed.
 - **Documentation Updated:** `docs/V3_50_COMMIT_PROGRESS.md`.
-- **Commit Hash:** `5150416`.
+- **Commit Hash:** `596151e`.
 - **Remaining Issues:** Milestone 6 complete (60% of roadmap achieved: 30/50 commits). Proceed to Milestone 7 (Commit 31: Commercial subscription tiers and quota limits).
+
+### COMMIT 31
+- **Title:** `feat: implement commercial subscription tiers and quota limits`
+- **Scope:** Multi-tier commercial SaaS definitions (Community Free, Team Starter, Professional, Enterprise), dynamic pricing models, project/assessment/team seat quotas, entitlement verification engine, and subscription upgrade endpoints.
+- **Files Changed:** `backend/app/services/billing_service.py`, `backend/app/api/v1/billing.py`, `backend/app/models/all_models.py`, `backend/tests/test_subscription_tiers_and_quotas.py`, `docs/V3_50_COMMIT_PROGRESS.md`.
+- **Implementation Summary:** Standardized 4 commercial SaaS subscription plans in `BillingService._ensure_standard_plans` with strict quota boundaries (projects: 1/5/50/1000; monthly assessments: 10/50/500/10000; repo size: 25MB/100MB/500MB/2GB; team members: 1/5/25/1000). Enhanced entitlement validation for projects, assessments, team members, and AI capabilities. Added `GET /api/v1/billing/plans` and `POST /api/v1/billing/subscribe` upgrade flows. Added 3 unit and integration tests.
+- **Tests Executed:** `pytest backend/tests/test_subscription_tiers_and_quotas.py`.
+- **Test Results:** 3 passed, 0 failed.
+- **Documentation Updated:** `docs/V3_50_COMMIT_PROGRESS.md`.
+- **Commit Hash:** `f45aa2c`.
+- **Remaining Issues:** Proceed to Commit 32 (Server side quota enforcement across all endpoints).
+
 
 
 

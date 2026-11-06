@@ -62,7 +62,7 @@ def subscribe_or_upgrade(
     db: Session = Depends(get_db)
 ):
     """Initiates checkout or upgrades subscription."""
-    plan = db.query(SubscriptionPlan).filter(SubscriptionPlan.slug == req.plan_slug).first()
+    plan = db.query(SubscriptionPlan).filter(SubscriptionPlan.id == req.plan_slug).first()
     if not plan:
         raise HTTPException(status_code=404, detail=f"Plan '{req.plan_slug}' not found")
 
