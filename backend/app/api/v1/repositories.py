@@ -696,3 +696,91 @@ async def handle_repo_webhook(
 
     else:
         raise HTTPException(status_code=400, detail=f"Unsupported webhook provider '{provider}'")
+
+# --- Commercial Repository UX Configuration Endpoints ---
+
+class RepoSettingsRequest(BaseModel):
+    selected_branch: Optional[str] = None
+    review_frequency: Optional[str] = "weekly"
+    excluded_paths: Optional[List[str]] = None
+    auto_assess_on_push: Optional[bool] = True
+
+@router.get("/{project_id}/settings")
+def get_repo_settings(project_id: str, current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    """Retrieve repository configuration settings and branches for a project."""
+    proj = db.query(Project).filter(Project.id == project_id, Project.org_id == current_user.org_id).first()
+    if not proj:
+        raise HTTPException(status_code=404, detail="Project not found or unauthorized")
+    
+    conn = db.query(RepositoryConnection).filter(RepositoryConnection.project_id == project_id).first()
+    if not conn:
+        raise HTTPException(status_code=404, detail="No repository connected to this project")
+    
+    meta = conn.metadata_json or {}
+    return {
+        "project_id": project_id,
+        "repo_name": conn.repo_name,
+        "provider": conn.provider,
+        "selected_branch": conn.selected_branch or "main",
+        "default_branch": conn.default_branch or "main",
+        "review_frequency": meta.get("review_frequency", "weekly"),
+        "excluded_paths": meta.get("excluded_paths", ["node_modules/**", "dist/**", "vendor/**"]),
+        "auto_assess_on_push": meta.get("auto_assess_on_push", True),
+        "status": conn.status,
+        "last_synced_at": conn.last_synced_at
+    }
+
+@router.put("/{project_id}/settings")
+def update_repo_settings(
+    project_id: str,
+    req: RepoSettingsRequest,
+    current_user: User = Depends(require_roles(["SuperAdmin", "Owner", "Administrator", "Engineering Manager", "Developer"])),
+    db: Session = Depends(get_db)
+):
+    """Update repository branch, review frequency, and exclusion paths."""
+    proj = db.query(Project).filter(Project.id == project_id, Project.org_id == current_user.org_id).first()
+    if not proj:
+        raise HTTPException(status_code=404, detail="Project not found or unauthorized")
+    
+    conn = db.query(RepositoryConnection).filter(RepositoryConnection.project_id == project_id).first()
+    if not conn:
+        raise HTTPException(status_code=404, detail="No repository connected to this project")
+    
+    if req.selected_branch:
+        conn.selected_branch = req.selected_branch
+    
+    meta = dict(conn.metadata_json or {})
+    if req.review_frequency is not None:
+        meta["review_frequency"] = req.review_frequency
+    if req.excluded_paths is not None:
+        meta["excluded_paths"] = req.excluded_paths
+    if req.auto_assess_on_push is not None:
+        meta["auto_assess_on_push"] = req.auto_assess_on_push
+    
+    conn.metadata_json = meta
+    db.commit()
+    return {
+        "message": "Repository settings updated successfully",
+        "settings": meta,
+        "selected_branch": conn.selected_branch
+    }
+
+@router.delete("/{project_id}/connection")
+def disconnect_repository(
+    project_id: str,
+    current_user: User = Depends(require_roles(["SuperAdmin", "Owner", "Administrator", "Engineering Manager"])),
+    db: Session = Depends(get_db)
+):
+    """Safely disconnect a repository from a project."""
+    proj = db.query(Project).filter(Project.id == project_id, Project.org_id == current_user.org_id).first()
+    if not proj:
+        raise HTTPException(status_code=404, detail="Project not found or unauthorized")
+    
+    conn = db.query(RepositoryConnection).filter(RepositoryConnection.project_id == project_id).first()
+    if not conn:
+        raise HTTPException(status_code=404, detail="No repository connected to this project")
+    
+    db.delete(conn)
+    db.commit()
+    return {"message": "Repository disconnected successfully"}
+

@@ -458,8 +458,19 @@
 - **Tests Executed:** `pytest backend/tests/test_commercial_customer_dashboard.py`.
 - **Test Results:** 3 passed, 0 failed.
 - **Documentation Updated:** `docs/V3_50_COMMIT_PROGRESS.md`.
-- **Commit Hash:** `c5cb4ae`.
+- **Commit Hash:** `dca2942`.
 - **Remaining Issues:** Proceed to Commit 37 (Complete assessment and repository user experience).
+
+### COMMIT 37
+- **Title:** `feat: complete assessment and repository user experience`
+- **Scope:** Complete assessment progress tracking, paginated risk findings with severity filters, two-assessment delta comparison, repository branch and review configuration, and safe repository disconnection.
+- **Files Changed:** `backend/app/api/v1/repositories.py`, `backend/app/api/v1/assessments.py`, `backend/tests/test_assessment_repository_ux.py`, `docs/V3_50_COMMIT_PROGRESS.md`.
+- **Implementation Summary:** Implemented `GET /api/v1/repositories/{project_id}/settings` and `PUT /api/v1/repositories/{project_id}/settings` supporting branch switching, review frequency (manual, daily, weekly, on_push), exclusion globs, and auto-assess toggles. Added `DELETE /api/v1/repositories/{project_id}/connection` with RBAC protection. Added `GET /api/v1/assessments/{assessment_id}/status` with real-time stage tracking and completion percentage. Added `GET /api/v1/assessments/{assessment_id}/findings` with pagination and severity filtering. Added `GET /api/v1/assessments/compare/two` computing score deltas, TDR deltas, newly introduced risks, resolved risks, and trend classification. Added 2 automated test suites verifying all endpoints and role checks.
+- **Tests Executed:** `pytest backend/tests/test_assessment_repository_ux.py`.
+- **Test Results:** 2 passed, 0 failed.
+- **Documentation Updated:** `docs/V3_50_COMMIT_PROGRESS.md`.
+- **Commit Hash:** `ddfee89`.
+- **Remaining Issues:** Proceed to Commit 38 (Implement professional PDF CSV and JSON reporting).
 
 
 

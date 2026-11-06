@@ -248,3 +248,129 @@ def get_assessment_debt_breakdown(
     breakdown["project_name"] = assessment.project.name if assessment.project else ""
     return breakdown
 
+@router.get("/{assessment_id}/status")
+def get_assessment_status(assessment_id: str, current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    """Retrieve real-time assessment stage progress and completion percentage."""
+    from app.models.all_models import Assessment
+    assessment = (
+        db.query(Assessment)
+        .join(Project)
+        .filter(Assessment.id == assessment_id, Project.org_id == current_user.org_id)
+        .first()
+    )
+    if not assessment:
+        raise HTTPException(status_code=404, detail="Assessment not found or unauthorized")
+    
+    if assessment.status == "completed":
+        percent = 100
+        stage = "completed"
+    elif assessment.status == "failed":
+        percent = 100
+        stage = "failed"
+    elif assessment.status == "processing":
+        percent = 65
+        stage = "analyzing"
+    else:
+        percent = 10
+        stage = "queued"
+    
+    return {
+        "assessment_id": assessment.id,
+        "status": assessment.status,
+        "stage": stage,
+        "progress_percent": percent,
+        "overall_health_score": assessment.overall_health_score,
+        "technical_debt_ratio": assessment.technical_debt_ratio,
+        "created_at": assessment.created_at
+    }
+
+@router.get("/{assessment_id}/findings")
+def list_assessment_findings(
+    assessment_id: str,
+    severity: Optional[str] = None,
+    page: int = 1,
+    limit: int = 20,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """Retrieve paginated assessment risk and debt findings with severity filter."""
+    from app.models.all_models import RiskFinding
+    assessment = (
+        db.query(Assessment)
+        .join(Project)
+        .filter(Assessment.id == assessment_id, Project.org_id == current_user.org_id)
+        .first()
+    )
+    if not assessment:
+        raise HTTPException(status_code=404, detail="Assessment not found or unauthorized")
+    
+    query = db.query(RiskFinding).filter(RiskFinding.assessment_id == assessment_id)
+    if severity:
+        query = query.filter(RiskFinding.severity == severity)
+    
+    total = query.count()
+    offset = (page - 1) * limit
+    findings = query.order_by(RiskFinding.created_at.desc()).offset(offset).limit(limit).all()
+    
+    return {
+        "total": total,
+        "page": page,
+        "limit": limit,
+        "items": [
+            {
+                "id": f.id,
+                "title": f.title,
+                "severity": f.severity,
+                "status": f.status,
+                "business_impact": f.business_impact or "",
+                "technical_impact": f.technical_impact or "",
+                "resolution_notes": f.resolution_notes or "",
+                "created_at": f.created_at
+            }
+            for f in findings
+        ]
+    }
+
+@router.get("/compare/two")
+def compare_two_assessments(
+    base_id: str,
+    target_id: str,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """Compare two assessments and calculate score deltas, newly introduced, and resolved risks."""
+    from app.models.all_models import Assessment
+    base_a = db.query(Assessment).join(Project).filter(Assessment.id == base_id, Project.org_id == current_user.org_id).first()
+    target_a = db.query(Assessment).join(Project).filter(Assessment.id == target_id, Project.org_id == current_user.org_id).first()
+
+    if not base_a or not target_a:
+        raise HTTPException(status_code=404, detail="One or both assessments not found or unauthorized")
+    
+    score_delta = round((target_a.overall_health_score or 0.0) - (base_a.overall_health_score or 0.0), 2)
+    tdr_delta = round((target_a.technical_debt_ratio or 0.0) - (base_a.technical_debt_ratio or 0.0), 2)
+
+    base_risk_titles = {r.title for r in base_a.risks}
+    target_risk_titles = {r.title for r in target_a.risks}
+
+    new_risks = [r.title for r in target_a.risks if r.title not in base_risk_titles]
+    resolved_risks = [r.title for r in base_a.risks if r.title not in target_risk_titles]
+
+    status_trend = "improved" if score_delta > 0 else ("degraded" if score_delta < 0 else "unchanged")
+
+    return {
+        "base_assessment_id": base_id,
+        "target_assessment_id": target_id,
+        "base_score": base_a.overall_health_score,
+        "target_score": target_a.overall_health_score,
+        "score_delta": score_delta,
+        "base_tdr": base_a.technical_debt_ratio,
+        "target_tdr": target_a.technical_debt_ratio,
+        "tdr_delta": tdr_delta,
+        "new_risks_count": len(new_risks),
+        "new_risks": new_risks,
+        "resolved_risks_count": len(resolved_risks),
+        "resolved_risks": resolved_risks,
+        "trend": status_trend
+    }
+
+
