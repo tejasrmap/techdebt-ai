@@ -5,7 +5,10 @@ from alembic.script import ScriptDirectory
 from sqlalchemy import create_engine
 from sqlalchemy.pool import QueuePool
 
-from backend.tests.test_postgresql_concurrency import validate_postgres_test_url, UnsafeTestDatabaseError
+try:
+    from tests.test_postgresql_concurrency import validate_postgres_test_url, UnsafeTestDatabaseError
+except ImportError:
+    from backend.tests.test_postgresql_concurrency import validate_postgres_test_url, UnsafeTestDatabaseError
 from app.database import engine
 
 def test_postgres_test_url_safeguards():

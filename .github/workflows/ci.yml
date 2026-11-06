@@ -46,9 +46,9 @@ jobs:
           SECRET_KEY: test-ci-super-secret-key-for-automated-pipeline-only-32b
           ENCRYPTION_KEY: dGVzdC1lbmNyeXB0aW9uLWtleS1mb3ItY2ktMDEyMzQ1Njc=
           ENVIRONMENT: test
-          PYTHONPATH: backend
+          PYTHONPATH: backend:.
         run: |
-          pytest backend/tests
+          python -m pytest backend/tests
 
   frontend-test:
     name: Frontend Tests & Production Build

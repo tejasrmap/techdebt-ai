@@ -326,7 +326,7 @@ def test_pg_heartbeat_renewal_unblocked(pg_session_factory):
         assert acquired is True
         gen = get_lock_generation(db_a, lock_key, worker_a)
 
-        hb = LockHeartbeat(lock_key, worker_a, interval=0.15, lease_extension=2, generation=gen)
+        hb = LockHeartbeat(lock_key, worker_a, interval=0.15, lease_extension=2, generation=gen, session_factory=pg_session_factory)
         hb.start()
 
         import time
@@ -398,7 +398,7 @@ def test_pg_genuine_mid_execution_lock_loss(pg_session_factory):
         proj = Project(org_id=org.id, name="PG Fencing Proj", description="Testing PG fencing")
         db_admin.add(proj); db_admin.commit(); db_admin.refresh(proj)
 
-        tech = Technology(name="pg-test-pkg", ecosystem="npm", latest_stable_version="1.0.0")
+        tech = Technology(name=f"pg-test-pkg-{uuid.uuid4().hex[:6]}", ecosystem="npm", latest_stable_version="1.0.0")
         db_admin.add(tech); db_admin.commit(); db_admin.refresh(tech)
 
         p_tech = ProjectTechnology(project_id=proj.id, technology_id=tech.id, installed_version="1.0.0")
@@ -506,7 +506,7 @@ def test_pg_final_persistence_atomicity(pg_session_factory):
         proj = Project(org_id=org.id, name="Atom Proj")
         db_a.add(proj); db_a.commit(); db_a.refresh(proj)
 
-        tech = Technology(name="atom-pkg", ecosystem="npm", latest_stable_version="2.0.0")
+        tech = Technology(name=f"atom-pkg-{uuid.uuid4().hex[:6]}", ecosystem="npm", latest_stable_version="2.0.0")
         db_a.add(tech); db_a.commit(); db_a.refresh(tech)
 
         acquire_distributed_lock(db_a, lock_key, "atom_worker", ttl_seconds=60)

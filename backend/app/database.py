@@ -15,7 +15,11 @@ metadata = MetaData(naming_convention=naming_convention)
 connect_args = {}
 engine_kwargs = {"pool_pre_ping": True}
 
-if settings.DATABASE_URL.startswith("sqlite"):
+database_url = settings.DATABASE_URL
+if database_url.startswith("postgres://"):
+    database_url = database_url.replace("postgres://", "postgresql://", 1)
+
+if database_url.startswith("sqlite"):
     connect_args = {"check_same_thread": False, "timeout": 30}
     engine_kwargs["connect_args"] = connect_args
 else:
@@ -25,11 +29,11 @@ else:
     engine_kwargs["pool_recycle"] = 1800
 
 engine = create_engine(
-    settings.DATABASE_URL,
+    database_url,
     **engine_kwargs
 )
 
-if settings.DATABASE_URL.startswith("sqlite"):
+if database_url.startswith("sqlite"):
     @event.listens_for(engine, "connect")
     def set_sqlite_pragma(dbapi_connection, connection_record):
         cursor = dbapi_connection.cursor()

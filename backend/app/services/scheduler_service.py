@@ -181,8 +181,13 @@ def verify_ownership_short_transaction(
     owns_session = False
     active_db = db
 
-    if active_db is None or use_isolated_session:
+    if active_db is None:
         active_db = SessionLocal()
+        owns_session = True
+    elif use_isolated_session:
+        from sqlalchemy.orm import sessionmaker
+        bound_engine = db.get_bind()
+        active_db = sessionmaker(autocommit=False, autoflush=False, bind=bound_engine)()
         owns_session = True
 
     try:
@@ -320,7 +325,8 @@ class LockHeartbeat:
         interval: float = 15.0,
         lease_extension: int = 600,
         max_retries: int = 3,
-        generation: Optional[int] = None
+        generation: Optional[int] = None,
+        session_factory: Optional[Any] = None
     ):
         self.lock_key = lock_key
         self.worker_id = worker_id
@@ -328,6 +334,7 @@ class LockHeartbeat:
         self.lease_extension = lease_extension
         self.max_retries = max_retries
         self.generation = generation
+        self.session_factory = session_factory
         self.stop_event = threading.Event()
         self.lost_lock_event = threading.Event()
         self.thread: Optional[threading.Thread] = None
@@ -347,7 +354,7 @@ class LockHeartbeat:
             for attempt in range(self.max_retries):
                 if self.stop_event.is_set():
                     return
-                db = SessionLocal()
+                db = (self.session_factory or SessionLocal)()
                 try:
                     # Verify lock state and ownership in database
                     now = datetime.utcnow()

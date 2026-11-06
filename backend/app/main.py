@@ -122,7 +122,8 @@ def health_check():
         "app": settings.PROJECT_NAME,
         "environment": settings.ENVIRONMENT,
         "api_version": "v1",
-        "version": "3.0.0"
+        "version": "3.0.0",
+        "supabase_configured": bool(settings.SUPABASE_URL and settings.SUPABASE_PUBLISHABLE_KEY)
     }
 
 @app.get("/live", tags=["Health"])
