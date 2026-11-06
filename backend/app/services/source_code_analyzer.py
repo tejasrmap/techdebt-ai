@@ -310,8 +310,39 @@ class SourceCodeAnalyzer:
                 "is_auto_verifiable": True
             })
 
+        # Deep nesting tracker
+        def _check_nesting(node: ast.AST, current_depth: int = 0) -> None:
+            nonlocal findings
+            is_control = isinstance(node, (ast.If, ast.While, ast.For, ast.AsyncFor, ast.Try))
+            next_depth = current_depth + 1 if is_control else current_depth
+
+            if is_control and current_depth >= 4:
+                start_l = getattr(node, "lineno", 1)
+                end_l = getattr(node, "end_lineno", start_l)
+                findings.append({
+                    "file_path": rel_path,
+                    "line_start": start_l,
+                    "line_end": end_l,
+                    "rule_id": "PY_DEEP_NESTING",
+                    "category": "complexity",
+                    "severity": "Medium" if current_depth == 4 else "High",
+                    "confidence": "High",
+                    "title": f"Deeply nested control flow (depth {current_depth + 1})",
+                    "explanation": f"Control block exceeds recommended maximum nesting depth of 4 levels (depth: {current_depth + 1}).",
+                    "technical_evidence": f"Line {start_l}: nested {node.__class__.__name__} statement at nesting depth {current_depth + 1}",
+                    "why_it_matters": "Deeply nested blocks severely impair readability, increase mental overhead, and lead to logic errors.",
+                    "recommended_remediation": "Flatten control flow using early returns, guard clauses, or method extraction.",
+                    "estimated_remediation_hours": 1.0,
+                    "is_auto_verifiable": True
+                })
+
+            for child in ast.iter_child_nodes(node):
+                _check_nesting(child, next_depth)
+
+        _check_nesting(tree)
+
         for node in ast.walk(tree):
-            # 1. Function Complexity & Length
+            # 1. Function Complexity, Length, Arguments, & Mutable Defaults
             if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
                 func_name = node.name
                 func_start = node.lineno
@@ -367,6 +398,47 @@ class SourceCodeAnalyzer:
                         "is_auto_verifiable": True
                     })
 
+                # Parameter count
+                total_args = len(node.args.args) + len(node.args.kwonlyargs)
+                if total_args > 6:
+                    findings.append({
+                        "file_path": rel_path,
+                        "line_start": func_start,
+                        "line_end": func_start,
+                        "rule_id": "PY_TOO_MANY_ARGUMENTS",
+                        "category": "maintainability",
+                        "severity": "Medium",
+                        "confidence": "High",
+                        "title": f"Too many function parameters ({total_args}) in '{func_name}'",
+                        "explanation": f"Function '{func_name}' defines {total_args} parameters (threshold: 6).",
+                        "technical_evidence": f"def {func_name}({total_args} arguments)",
+                        "why_it_matters": "Functions with many parameters indicate low cohesion and make call sites error-prone and brittle.",
+                        "recommended_remediation": "Encapsulate parameters into a dedicated options object, dataclass, or Pydantic model.",
+                        "estimated_remediation_hours": 0.75,
+                        "is_auto_verifiable": True
+                    })
+
+                # Mutable default arguments
+                for default_val in node.args.defaults + node.args.kw_defaults:
+                    if isinstance(default_val, (ast.List, ast.Dict, ast.Set)):
+                        d_line = getattr(default_val, "lineno", func_start)
+                        findings.append({
+                            "file_path": rel_path,
+                            "line_start": d_line,
+                            "line_end": d_line,
+                            "rule_id": "PY_MUTABLE_DEFAULT_ARG",
+                            "category": "reliability",
+                            "severity": "High",
+                            "confidence": "High",
+                            "title": f"Dangerous mutable default argument in '{func_name}'",
+                            "explanation": f"Function '{func_name}' uses a mutable default value (list/dict/set), which persists mutations across all calls.",
+                            "technical_evidence": f"Line {d_line}: Mutable default {default_val.__class__.__name__} detected",
+                            "why_it_matters": "Python default arguments are evaluated once at module load time; mutating them produces unpredictable shared state bugs.",
+                            "recommended_remediation": "Default the parameter to None and initialize a new container inside the function body.",
+                            "estimated_remediation_hours": 0.25,
+                            "is_auto_verifiable": True
+                        })
+
             # 2. Bare Exception Handling & Silent Exception Swallowing
             elif isinstance(node, ast.ExceptHandler):
                 handler_start = node.lineno
@@ -377,7 +449,6 @@ class SourceCodeAnalyzer:
                     if isinstance(node.type, ast.Name) and node.type.id in ("Exception", "BaseException"):
                         is_broad = True
 
-                # Check if body is just 'pass'
                 is_swallowed = False
                 if len(node.body) == 1 and isinstance(node.body[0], ast.Pass):
                     is_swallowed = True
@@ -399,6 +470,108 @@ class SourceCodeAnalyzer:
                         "estimated_remediation_hours": 0.5,
                         "is_auto_verifiable": True
                     })
+
+            # 3. Insecure Deserialization & Dangerous Calls
+            elif isinstance(node, ast.Call):
+                call_line = node.lineno
+                # Check pickle.loads / pickle.load
+                if isinstance(node.func, ast.Attribute) and node.func.attr in ("load", "loads"):
+                    if isinstance(node.func.value, ast.Name) and node.func.value.id in ("pickle", "_pickle", "cPickle"):
+                        findings.append({
+                            "file_path": rel_path,
+                            "line_start": call_line,
+                            "line_end": call_line,
+                            "rule_id": "PY_INSECURE_DESERIALIZATION_PICKLE",
+                            "category": "security",
+                            "severity": "Critical",
+                            "confidence": "High",
+                            "title": "Insecure object deserialization via pickle",
+                            "explanation": f"Call to '{node.func.value.id}.{node.func.attr}()' deserializes untrusted data into arbitrary Python bytecode.",
+                            "technical_evidence": f"Line {call_line}: {node.func.value.id}.{node.func.attr}(...)",
+                            "why_it_matters": "Pickle deserialization allows Remote Code Execution (RCE) if any part of the payload originates from untrusted sources.",
+                            "recommended_remediation": "Use safe serialization formats like JSON, Protobuf, or MsgPack.",
+                            "estimated_remediation_hours": 1.5,
+                            "is_auto_verifiable": True
+                        })
+                    elif isinstance(node.func.value, ast.Name) and node.func.value.id == "yaml" and node.func.attr == "load":
+                        # Check if Loader keyword argument is present and safe
+                        has_safe_loader = any(kw.arg == "Loader" and "SafeLoader" in getattr(kw.value, "attr", "") for kw in node.keywords)
+                        if not has_safe_loader:
+                            findings.append({
+                                "file_path": rel_path,
+                                "line_start": call_line,
+                                "line_end": call_line,
+                                "rule_id": "PY_UNSAFE_YAML_LOAD",
+                                "category": "security",
+                                "severity": "Critical",
+                                "confidence": "High",
+                                "title": "Unsafe PyYAML loading without SafeLoader",
+                                "explanation": "yaml.load() without explicit SafeLoader can execute arbitrary Python objects.",
+                                "technical_evidence": f"Line {call_line}: yaml.load() call",
+                                "why_it_matters": "Untrusted YAML payloads can construct Python objects and achieve remote code execution.",
+                                "recommended_remediation": "Use yaml.safe_load() or specify Loader=yaml.SafeLoader.",
+                                "estimated_remediation_hours": 0.5,
+                                "is_auto_verifiable": True
+                            })
+                # Check eval / exec
+                elif isinstance(node.func, ast.Name) and node.func.id in ("eval", "exec"):
+                    findings.append({
+                        "file_path": rel_path,
+                        "line_start": call_line,
+                        "line_end": call_line,
+                        "rule_id": "PY_DANGEROUS_EVAL",
+                        "category": "security",
+                        "severity": "Critical",
+                        "confidence": "High",
+                        "title": f"Dangerous dynamic execution via {node.func.id}()",
+                        "explanation": f"Using {node.func.id}() executes dynamic Python expressions or bytecode at runtime.",
+                        "technical_evidence": f"Line {call_line}: {node.func.id}(...)",
+                        "why_it_matters": "Dynamic code execution invites severe code injection and sandbox escape vulnerabilities.",
+                        "recommended_remediation": "Use ast.literal_eval() for safe data evaluation or statically dispatch methods.",
+                        "estimated_remediation_hours": 1.0,
+                        "is_auto_verifiable": True
+                    })
+
+            # 4. Wildcard Imports
+            elif isinstance(node, ast.ImportFrom):
+                if any(alias.name == "*" for alias in node.names):
+                    line_no = node.lineno
+                    findings.append({
+                        "file_path": rel_path,
+                        "line_start": line_no,
+                        "line_end": line_no,
+                        "rule_id": "PY_WILDCARD_IMPORT",
+                        "category": "maintainability",
+                        "severity": "Low",
+                        "confidence": "High",
+                        "title": f"Wildcard import 'from {node.module or ''} import *'",
+                        "explanation": "Wildcard imports pollute the module namespace and obscure symbol origin.",
+                        "technical_evidence": f"Line {line_no}: from {node.module or ''} import *",
+                        "why_it_matters": "Wildcard imports break static analysis, hide symbol origins, and risk subtle namespace collisions.",
+                        "recommended_remediation": "Explicitly import required identifiers by name.",
+                        "estimated_remediation_hours": 0.25,
+                        "is_auto_verifiable": True
+                    })
+
+            # 5. Global Statement
+            elif isinstance(node, ast.Global):
+                line_no = node.lineno
+                findings.append({
+                    "file_path": rel_path,
+                    "line_start": line_no,
+                    "line_end": line_no,
+                    "rule_id": "PY_GLOBAL_STATEMENT",
+                    "category": "architecture",
+                    "severity": "Medium",
+                    "confidence": "High",
+                    "title": f"Usage of global variable statement: {', '.join(node.names)}",
+                    "explanation": f"Function modifies global variables ({', '.join(node.names)}) directly.",
+                    "technical_evidence": f"Line {line_no}: global {', '.join(node.names)}",
+                    "why_it_matters": "Global mutable state causes hidden coupling, race conditions in multi-threaded runtimes, and makes unit testing difficult.",
+                    "recommended_remediation": "Pass state explicitly via arguments or encapsulate within a class instance.",
+                    "estimated_remediation_hours": 0.5,
+                    "is_auto_verifiable": True
+                })
 
         return max_file_complexity, findings
 
