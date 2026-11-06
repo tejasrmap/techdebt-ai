@@ -78,6 +78,44 @@ def subscribe_or_upgrade(
 
     return result
 
+@router.post("/checkout")
+def create_checkout(
+    req: SubscribeRequest,
+    current_user: User = Depends(require_roles(["SuperAdmin", "Owner", "Administrator"])),
+    db: Session = Depends(get_db)
+):
+    """Initiates Stripe Checkout session for subscription creation or upgrade."""
+    return subscribe_or_upgrade(req=req, current_user=current_user, db=db)
+
+class CustomerPortalRequest(BaseModel):
+    return_url: Optional[str] = None
+
+@router.post("/portal")
+def create_portal_session(
+    req: Optional[CustomerPortalRequest] = None,
+    current_user: User = Depends(require_roles(["SuperAdmin", "Owner", "Administrator"])),
+    db: Session = Depends(get_db)
+):
+    """Generates customer portal session to manage subscription and payments."""
+    return_url = req.return_url if req and req.return_url else ""
+    return BillingService.create_customer_portal_session(
+        db=db,
+        org_id=current_user.org_id,
+        return_url=return_url
+    )
+
+@router.get("/portal/session")
+def get_portal_session(
+    current_user: User = Depends(require_roles(["SuperAdmin", "Owner", "Administrator"])),
+    db: Session = Depends(get_db)
+):
+    """Retrieves customer portal URL for self-service billing management."""
+    return BillingService.create_customer_portal_session(
+        db=db,
+        org_id=current_user.org_id
+    )
+
+
 @router.post("/cancel")
 def cancel_subscription(
     current_user: User = Depends(require_roles(["SuperAdmin", "Owner", "Administrator"])),

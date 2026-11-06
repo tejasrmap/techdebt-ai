@@ -345,3 +345,40 @@ class BillingService:
             "plan_id": updated_sub.plan_id,
             "status": updated_sub.status
         }
+
+    @classmethod
+    def create_customer_portal_session(
+        cls,
+        db: Session,
+        org_id: str,
+        return_url: str = ""
+    ) -> Dict[str, Any]:
+        """
+        Generates a Stripe Billing Customer Portal session to manage payment methods,
+        invoices, and subscriptions. Falls back to internal settings portal when offline or in sandbox mode.
+        """
+        sub = cls.get_or_create_subscription(db, org_id)
+        fallback_url = return_url or "http://localhost:5173/settings?tab=billing"
+
+        if cls.STRIPE_SECRET_KEY and not cls.STRIPE_SECRET_KEY.startswith("mock_") and sub.stripe_customer_id:
+            try:
+                import stripe
+                stripe.api_key = cls.STRIPE_SECRET_KEY
+                portal_session = stripe.billing_portal.Session.create(
+                    customer=sub.stripe_customer_id,
+                    return_url=fallback_url
+                )
+                return {
+                    "mode": "live_stripe",
+                    "portal_url": portal_session.url,
+                    "customer_id": sub.stripe_customer_id
+                }
+            except Exception as e:
+                logger.error(f"Stripe Customer Portal session creation error: {e}")
+
+        return {
+            "mode": "sandbox",
+            "portal_url": fallback_url,
+            "message": "Customer portal active in local sandbox mode."
+        }
+

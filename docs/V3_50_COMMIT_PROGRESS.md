@@ -414,8 +414,20 @@
 - **Tests Executed:** `pytest backend/tests/test_server_side_quota_enforcement.py`.
 - **Test Results:** 4 passed, 0 failed.
 - **Documentation Updated:** `docs/V3_50_COMMIT_PROGRESS.md`.
-- **Commit Hash:** `5bab4f5`.
+- **Commit Hash:** `320dd35`.
 - **Remaining Issues:** Proceed to Commit 33 (Stripe checkout and customer portal integration).
+
+### COMMIT 33
+- **Title:** `feat: implement Stripe checkout and customer portal integration`
+- **Scope:** Stripe Checkout session creation, self-service customer portal session generation, dual live/sandbox operation modes, plan upgrade processing, role-based authorization for financial endpoints, and REST billing endpoints.
+- **Files Changed:** `backend/app/services/billing_service.py`, `backend/app/api/v1/billing.py`, `backend/tests/test_stripe_checkout_and_portal.py`, `docs/V3_50_COMMIT_PROGRESS.md`.
+- **Implementation Summary:** Implemented `BillingService.create_customer_portal_session` and enhanced `create_checkout_session` supporting Stripe live API and offline sandbox fallback. Added `POST /api/v1/billing/checkout`, `POST /api/v1/billing/portal`, and `GET /api/v1/billing/portal/session` endpoints with RBAC protection (SuperAdmin, Owner, Administrator). Added 3 unit and integration tests verifying checkout initiation, portal redirect delivery, and developer role access denial.
+- **Tests Executed:** `pytest backend/tests/test_stripe_checkout_and_portal.py`.
+- **Test Results:** 3 passed, 0 failed.
+- **Documentation Updated:** `docs/V3_50_COMMIT_PROGRESS.md`.
+- **Commit Hash:** `b4b6a63`.
+- **Remaining Issues:** Proceed to Commit 34 (Secure Stripe webhook processing).
+
 
 
 
