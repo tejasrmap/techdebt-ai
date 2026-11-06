@@ -176,27 +176,32 @@ def get_usage(
 
 @router.post("/webhook")
 async def stripe_webhook(request: Request, db: Session = Depends(get_db)):
-    """Receives Stripe webhook events for automated recurring billing."""
+    """
+    Receives and cryptographically verifies Stripe webhook events using HMAC-SHA256.
+    Protects against timestamp drift replay attacks and processes subscription lifecycle events.
+    """
     try:
         body = await request.body()
         payload = await request.json()
     except Exception:
         raise HTTPException(status_code=400, detail="Invalid request body")
 
-    event_type = payload.get("type", "")
-    data_object = payload.get("data", {}).get("object", {})
+    sig_header = request.headers.get("stripe-signature", "")
+    
+    # If a webhook secret is configured, require and verify the cryptographic signature
+    if BillingService.STRIPE_WEBHOOK_SECRET:
+        if not sig_header:
+            raise HTTPException(status_code=400, detail="Missing required Stripe-Signature header")
 
-    # Process events like invoice.paid, customer.subscription.updated, customer.subscription.deleted
-    if event_type == "invoice.payment_succeeded":
-        customer_id = data_object.get("customer")
-        amount_paid = data_object.get("amount_paid", 0) / 100.0
-        # Update matching invoice if present
-        inv_id = data_object.get("id")
-        inv = db.query(Invoice).filter(Invoice.stripe_invoice_id == inv_id).first()
-        if inv:
-            inv.status = "paid"
-            inv.amount_paid = amount_paid
-            db.commit()
+        is_valid = BillingService.verify_stripe_signature(
+            payload_bytes=body,
+            sig_header=sig_header,
+            secret=BillingService.STRIPE_WEBHOOK_SECRET
+        )
+        if not is_valid:
+            raise HTTPException(status_code=400, detail="Invalid Stripe webhook cryptographic signature")
 
-    return {"status": "success"}
+    result = BillingService.handle_stripe_event(db=db, payload=payload)
+    return result
+
 

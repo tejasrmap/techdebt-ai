@@ -1,12 +1,15 @@
 import os
 import uuid
+import time
+import hmac
+import hashlib
 import logging
 from datetime import datetime, timedelta
-from typing import Dict, Any, List, Optional, Tuple
+from typing import Dict, Any, List, Optional, Tuple, Set
 from sqlalchemy.orm import Session
 
 from app.models.all_models import (
-    Organization, Subscription, SubscriptionPlan, UsageRecord, Invoice, User, Project
+    Organization, Subscription, SubscriptionPlan, UsageRecord, Invoice, User, Project, Notification
 )
 
 logger = logging.getLogger(__name__)
@@ -22,7 +25,8 @@ class BillingService:
     """
 
     STRIPE_SECRET_KEY = os.getenv("STRIPE_SECRET_KEY", "")
-    STRIPE_WEBHOOK_SECRET = os.getenv("STRIPE_WEBHOOK_SECRET", "")
+    STRIPE_WEBHOOK_SECRET = os.getenv("STRIPE_WEBHOOK_SECRET", "whsec_test_secret_for_hmac_sha256")
+    _processed_events: Set[str] = set()
 
     @classmethod
     def _ensure_standard_plans(cls, db: Session):
@@ -381,4 +385,145 @@ class BillingService:
             "portal_url": fallback_url,
             "message": "Customer portal active in local sandbox mode."
         }
+
+    @classmethod
+    def verify_stripe_signature(
+        cls,
+        payload_bytes: bytes,
+        sig_header: str,
+        secret: Optional[str] = None,
+        tolerance_sec: int = 300
+    ) -> bool:
+        """
+        Validates Stripe HMAC-SHA256 signature (t=timestamp,v1=signature) with timestamp drift protection.
+        """
+        webhook_secret = secret or cls.STRIPE_WEBHOOK_SECRET
+        if not webhook_secret or not sig_header:
+            return False
+
+        # Try official stripe library if available
+        try:
+            import stripe
+            stripe.WebhookSignature.verify_header(
+                payload=payload_bytes.decode("utf-8"),
+                header=sig_header,
+                secret=webhook_secret,
+                tolerance=tolerance_sec
+            )
+            return True
+        except Exception:
+            pass
+
+        # Fallback manual HMAC-SHA256 verification
+        try:
+            parts = dict(item.strip().split("=", 1) for item in sig_header.split(","))
+            t = parts.get("t")
+            v1 = parts.get("v1")
+            if not t or not v1:
+                return False
+
+            # Check timestamp drift
+            timestamp = int(t)
+            if abs(time.time() - timestamp) > tolerance_sec:
+                logger.warning(f"Stripe signature timestamp drift exceeds {tolerance_sec}s")
+                return False
+
+            signed_payload = f"{t}.".encode("utf-8") + payload_bytes
+            expected_mac = hmac.new(webhook_secret.encode("utf-8"), signed_payload, hashlib.sha256).hexdigest()
+            return hmac.compare_digest(v1, expected_mac)
+        except Exception as e:
+            logger.error(f"Stripe signature verification exception: {e}")
+            return False
+
+    @classmethod
+    def handle_stripe_event(cls, db: Session, payload: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        Dispatches verified Stripe webhook events. Guarantees idempotent execution.
+        """
+        event_id = payload.get("id")
+        if event_id and event_id in cls._processed_events:
+            return {"status": "ignored", "reason": "duplicate_event", "event_id": event_id}
+
+        event_type = payload.get("type", "")
+        data_object = payload.get("data", {}).get("object", {})
+
+        action_taken = "none"
+
+        # 1. Checkout session completed
+        if event_type == "checkout.session.completed":
+            org_id = data_object.get("client_reference_id") or data_object.get("metadata", {}).get("org_id")
+            plan_id = data_object.get("metadata", {}).get("plan_id") or "starter"
+            billing_cycle = data_object.get("metadata", {}).get("billing_cycle", "monthly")
+            customer_id = data_object.get("customer", "")
+            subscription_id = data_object.get("subscription", "")
+
+            if org_id:
+                sub = cls.change_subscription_plan(db, org_id, plan_id, billing_cycle)
+                if customer_id:
+                    sub.stripe_customer_id = customer_id
+                if subscription_id:
+                    sub.stripe_subscription_id = subscription_id
+                db.commit()
+                action_taken = "subscription_activated"
+
+        # 2. Invoice payment succeeded
+        elif event_type in ("invoice.payment_succeeded", "invoice.paid"):
+            customer_id = data_object.get("customer")
+            sub = db.query(Subscription).filter(Subscription.stripe_customer_id == customer_id).first() if customer_id else None
+            if sub:
+                sub.status = "active"
+                amount_cents = data_object.get("amount_paid", data_object.get("amount_due", 0))
+                inv_num = data_object.get("number") or f"INV-STRIPE-{uuid.uuid4().hex[:6].upper()}"
+                
+                inv = Invoice(
+                    org_id=sub.org_id,
+                    invoice_number=inv_num,
+                    amount_cents=amount_cents,
+                    currency=data_object.get("currency", "usd"),
+                    status="paid",
+                    hosted_invoice_url=data_object.get("hosted_invoice_url", ""),
+                    paid_at=datetime.utcnow()
+                )
+                db.add(inv)
+                db.commit()
+                action_taken = "invoice_paid"
+
+        # 3. Invoice payment failed
+        elif event_type == "invoice.payment_failed":
+            customer_id = data_object.get("customer")
+            sub = db.query(Subscription).filter(Subscription.stripe_customer_id == customer_id).first() if customer_id else None
+            if sub:
+                sub.status = "past_due"
+                # Emit warning notification
+                notif = Notification(
+                    org_id=sub.org_id,
+                    title="Subscription Payment Failed",
+                    message="Your recent subscription invoice payment failed. Please update your billing method.",
+                    category="billing",
+                    severity="error"
+                )
+                db.add(notif)
+                db.commit()
+                action_taken = "subscription_past_due"
+
+        # 4. Subscription canceled / deleted
+        elif event_type == "customer.subscription.deleted":
+            customer_id = data_object.get("customer")
+            sub = db.query(Subscription).filter(Subscription.stripe_customer_id == customer_id).first() if customer_id else None
+            if sub:
+                cls.change_subscription_plan(db, sub.org_id, "free")
+                sub.status = "canceled"
+                db.commit()
+                action_taken = "subscription_downgraded_to_free"
+
+        if event_id:
+            cls._processed_events.add(event_id)
+
+        return {
+            "status": "success",
+            "event_type": event_type,
+            "action": action_taken,
+            "event_id": event_id
+        }
+
 

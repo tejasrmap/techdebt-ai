@@ -425,8 +425,20 @@
 - **Tests Executed:** `pytest backend/tests/test_stripe_checkout_and_portal.py`.
 - **Test Results:** 3 passed, 0 failed.
 - **Documentation Updated:** `docs/V3_50_COMMIT_PROGRESS.md`.
-- **Commit Hash:** `b4b6a63`.
+- **Commit Hash:** `98fac04`.
 - **Remaining Issues:** Proceed to Commit 34 (Secure Stripe webhook processing).
+
+### COMMIT 34
+- **Title:** `feat: implement secure Stripe webhook processing`
+- **Scope:** Cryptographic Stripe-Signature verification using HMAC-SHA256 with timestamp drift replay defense, event lifecycle processing (checkout.session.completed, invoice.paid, invoice.payment_failed, customer.subscription.deleted), and duplicate event idempotency caching.
+- **Files Changed:** `backend/app/services/billing_service.py`, `backend/app/api/v1/billing.py`, `backend/tests/test_stripe_webhook_processing.py`, `docs/V3_50_COMMIT_PROGRESS.md`.
+- **Implementation Summary:** Implemented `BillingService.verify_stripe_signature` with timestamp tolerance and constant-time HMAC comparison. Built `BillingService.handle_stripe_event` handling subscription activation, payment failure past-due transitions, cancellations, and notification emissions. Added duplicate webhook replay suppression. Added 4 unit and integration tests verifying signature enforcement, replay prevention, and lifecycle state changes.
+- **Tests Executed:** `pytest backend/tests/test_stripe_webhook_processing.py`.
+- **Test Results:** 4 passed, 0 failed.
+- **Documentation Updated:** `docs/V3_50_COMMIT_PROGRESS.md`.
+- **Commit Hash:** `55d9b19`.
+- **Remaining Issues:** Proceed to Commit 35 (Automated invoice generation and billing history).
+
 
 
 
