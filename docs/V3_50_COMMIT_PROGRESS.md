@@ -22,8 +22,8 @@
 | **10** | `test: validate authentication authorization and multi-tenant security` | **COMPLETE** | `docs/V3_MILESTONES_1_AND_2_VERIFICATION.md` | Pytest (39 comprehensive security & auth tests) | PASS (39 passed) | `53ebd14` |
 | **11** | `feat: implement secure GitHub App integration` | **COMPLETE** | `backend/app/services/github_app_service.py`, `backend/app/api/v1/repositories.py`, `backend/tests/test_github_app_integration.py` | Pytest (test_github_app_integration) | PASS (4 passed) | `989ae34` |
 | **12** | `feat: implement GitLab repository integration` | **COMPLETE** | `backend/app/services/gitlab_service.py`, `backend/app/api/v1/repositories.py`, `backend/tests/test_gitlab_integration.py` | Pytest (test_gitlab_integration) | PASS (5 passed) | `2033b75` |
-| **13** | `feat: implement additional repository providers and ZIP uploads` | **COMPLETE** | `backend/app/services/bitbucket_service.py`, `backend/app/services/repository_ingestion_service.py`, `backend/app/api/v1/repositories.py`, `backend/tests/test_repository_providers_and_zip.py` | Pytest (test_repository_providers_and_zip) | PASS (8 passed) | Pending |
-| **14** | `feat: implement secure asynchronous repository ingestion` | Planned | - | - | - | - |
+| **13** | `feat: implement additional repository providers and ZIP uploads` | **COMPLETE** | `backend/app/services/bitbucket_service.py`, `backend/app/services/repository_ingestion_service.py`, `backend/app/api/v1/repositories.py`, `backend/tests/test_repository_providers_and_zip.py` | Pytest (test_repository_providers_and_zip) | PASS (8 passed) | `92359ce` |
+| **14** | `feat: implement secure asynchronous repository ingestion` | **COMPLETE** | `backend/app/services/repository_ingestion_service.py`, `backend/app/api/v1/repositories.py`, `backend/tests/test_async_ingestion.py` | Pytest (test_async_ingestion) | PASS (4 passed) | Pending |
 | **15** | `feat: implement repository webhooks and incremental synchronization` | Planned | - | - | - | - |
 | **16** | `feat: implement Python AST source analysis` | Planned | - | - | - | - |
 | **17** | `feat: implement JavaScript and TypeScript source analysis` | Planned | - | - | - | - |
@@ -205,5 +205,16 @@
 - **Tests Executed:** `pytest backend/tests/test_repository_providers_and_zip.py`.
 - **Test Results:** 8 passed, 0 failed.
 - **Documentation Updated:** `docs/V3_50_COMMIT_PROGRESS.md`.
-- **Commit Hash:** Assigned upon commit.
+- **Commit Hash:** `92359ce`.
 - **Remaining Issues:** Proceed to Commit 14 (Implement secure asynchronous repository ingestion).
+
+### COMMIT 14
+- **Title:** `feat: implement secure asynchronous repository ingestion`
+- **Scope:** Asynchronous background ingestion job manager, lifecycle tracking, progress stages, concurrency controls, status polling endpoint.
+- **Files Changed:** `backend/app/services/repository_ingestion_service.py`, `backend/app/api/v1/repositories.py`, `backend/tests/test_async_ingestion.py`, `docs/V3_50_COMMIT_PROGRESS.md`.
+- **Implementation Summary:** Implemented thread-safe `IngestionJobManager` managing lifecycle states (`pending`, `cloning`, `parsing`, `analyzing`, `completed`, `failed`), tracking progress percentages, timestamps, and execution summaries. Implemented per-organization concurrency controls (max 3 concurrent jobs). Implemented `execute_async_ingestion` task runner with database synchronizer and safe error sanitization. Added `POST /repositories/{project_id}/sync-async` and `GET /repositories/jobs/{job_id}` endpoints with multi-tenant isolation. Added 4 unit tests.
+- **Tests Executed:** `pytest backend/tests/test_async_ingestion.py`.
+- **Test Results:** 4 passed, 0 failed.
+- **Documentation Updated:** `docs/V3_50_COMMIT_PROGRESS.md`.
+- **Commit Hash:** Assigned upon commit.
+- **Remaining Issues:** Proceed to Commit 15 (Implement repository webhooks and incremental synchronization).

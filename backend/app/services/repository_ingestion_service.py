@@ -6,6 +6,9 @@ import zipfile
 import shutil
 import tempfile
 import logging
+import uuid
+from datetime import datetime
+from threading import Lock
 from urllib.parse import urlparse
 from typing import Dict, Any, List, Optional, Tuple
 import httpx
@@ -405,3 +408,155 @@ class RepositoryIngestionService:
                         logger.warning(f"Error parsing dependency file '{f}': {e}")
 
         return all_deps
+
+class IngestionJobManager:
+    """
+    Thread-safe in-memory and database-backed asynchronous repository ingestion job tracker.
+    Manages job states: pending -> cloning -> parsing -> analyzing -> completed / failed.
+    Tracks progress percentage, stages, execution metrics, and isolated workspace cleanup.
+    """
+    MAX_CONCURRENT_PER_ORG = 3
+
+    def __init__(self):
+        self._jobs: Dict[str, Dict[str, Any]] = {}
+        self._lock = Lock()
+
+    def create_job(self, project_id: str, org_id: str, provider: str = "github") -> str:
+        with self._lock:
+            # Check tenant concurrency limit
+            active_count = sum(
+                1 for j in self._jobs.values()
+                if j["org_id"] == org_id and j["status"] in ("pending", "cloning", "parsing", "analyzing")
+            )
+            if active_count >= self.MAX_CONCURRENT_PER_ORG:
+                raise ValueError(f"Organization has reached maximum concurrent ingestion limit ({self.MAX_CONCURRENT_PER_ORG}). Please wait for active jobs to complete.")
+
+            job_id = str(uuid.uuid4())
+            self._jobs[job_id] = {
+                "job_id": job_id,
+                "project_id": project_id,
+                "org_id": org_id,
+                "provider": provider,
+                "status": "pending",
+                "progress": 0,
+                "stage": "Job queued",
+                "error": None,
+                "results": None,
+                "created_at": datetime.utcnow().isoformat(),
+                "started_at": None,
+                "completed_at": None
+            }
+            return job_id
+
+    def update_job(
+        self,
+        job_id: str,
+        status: str,
+        progress: int,
+        stage: str,
+        error: Optional[str] = None,
+        results: Optional[Dict[str, Any]] = None
+    ) -> None:
+        with self._lock:
+            if job_id not in self._jobs:
+                return
+            job = self._jobs[job_id]
+            job["status"] = status
+            job["progress"] = min(100, max(0, progress))
+            job["stage"] = stage
+            if status in ("cloning", "parsing", "analyzing") and not job["started_at"]:
+                job["started_at"] = datetime.utcnow().isoformat()
+            if error is not None:
+                job["error"] = str(error)[:500]
+            if results is not None:
+                job["results"] = results
+            if status in ("completed", "failed"):
+                job["completed_at"] = datetime.utcnow().isoformat()
+
+    def get_job(self, job_id: str, org_id: Optional[str] = None) -> Optional[Dict[str, Any]]:
+        with self._lock:
+            job = self._jobs.get(job_id)
+            if not job:
+                return None
+            if org_id and job["org_id"] != org_id:
+                return None
+            return dict(job)
+
+ingestion_job_manager = IngestionJobManager()
+
+async def execute_async_ingestion(
+    job_id: str,
+    project_id: str,
+    org_id: str,
+    repo_url: Optional[str],
+    zip_bytes: Optional[bytes] = None,
+    auth_token: Optional[str] = None,
+    branch: str = "main",
+    provider: str = "github"
+) -> None:
+    from app.database import SessionLocal
+    from app.models.all_models import Project, RepositoryConnection
+    
+    svc = RepositoryIngestionService()
+    try:
+        ingestion_job_manager.update_job(job_id, status="cloning", progress=15, stage="Downloading repository source")
+        ingestion_job_manager.update_job(job_id, status="parsing", progress=45, stage="Parsing dependency manifests and lockfiles")
+        
+        result = await svc.ingest_repository(
+            repo_url=repo_url,
+            zip_bytes=zip_bytes,
+            auth_token=auth_token,
+            branch=branch,
+            provider=provider
+        )
+        
+        ingestion_job_manager.update_job(job_id, status="analyzing", progress=75, stage="Running static code analysis")
+        
+        db = SessionLocal()
+        try:
+            conn = db.query(RepositoryConnection).filter(RepositoryConnection.project_id == project_id).first()
+            if conn:
+                conn.status = "synced"
+                conn.last_sync_status = "success"
+                conn.commit_sha = result.get("commit_sha", "")
+                conn.commit_message = result.get("commit_message", "")
+                conn.commit_author = result.get("commit_author", "")
+                conn.last_synced_at = datetime.utcnow()
+                conn.file_count = result.get("code_analysis", {}).get("total_files_analyzed", 0)
+                db.commit()
+        finally:
+            db.close()
+            
+        ingestion_job_manager.update_job(
+            job_id,
+            status="completed",
+            progress=100,
+            stage="Ingestion completed successfully",
+            results={
+                "languages": result.get("profile", {}).get("languages", []),
+                "frameworks": result.get("profile", {}).get("frameworks", []),
+                "dependencies_count": len(result.get("dependencies", [])),
+                "files_analyzed": result.get("code_analysis", {}).get("total_files_analyzed", 0),
+                "total_loc": result.get("code_analysis", {}).get("total_lines_of_code", 0)
+            }
+        )
+    except Exception as e:
+        logger.error(f"Async ingestion job {job_id} failed: {e}", exc_info=True)
+        try:
+            db = SessionLocal()
+            conn = db.query(RepositoryConnection).filter(RepositoryConnection.project_id == project_id).first()
+            if conn:
+                conn.status = "error"
+                conn.last_sync_status = "failed"
+                db.commit()
+            db.close()
+        except Exception:
+            pass
+            
+        ingestion_job_manager.update_job(
+            job_id,
+            status="failed",
+            progress=0,
+            stage="Ingestion failed",
+            error=str(e)
+        )

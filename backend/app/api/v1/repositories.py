@@ -1,7 +1,7 @@
 import os
 import shutil
 from typing import Optional, Dict, Any, List
-from fastapi import APIRouter, Depends, HTTPException, status, UploadFile, File, Form
+from fastapi import APIRouter, Depends, HTTPException, status, UploadFile, File, Form, BackgroundTasks
 from pydantic import BaseModel, HttpUrl
 from sqlalchemy.orm import Session
 
@@ -9,7 +9,8 @@ from app.database import get_db
 from app.models.all_models import Project, User, RepositoryConnection, ProjectTechnology, Technology
 from app.services.auth_service import get_current_user, require_roles
 from app.services.repository_ingestion_service import (
-    RepositoryIngestionService, UnsafeRepositoryURLError, ArchiveSecurityError
+    RepositoryIngestionService, UnsafeRepositoryURLError, ArchiveSecurityError,
+    ingestion_job_manager, execute_async_ingestion
 )
 from app.services.parsers.dependency_parser import DependencyParser
 from app.services.github_app_service import GitHubAppService, GitHubAppError
@@ -423,6 +424,71 @@ async def upload_repository_zip(
         "dependencies_discovered": discovered_deps_count,
         "status": conn.status
     }
+
+class AsyncSyncRequest(BaseModel):
+    branch: Optional[str] = None
+    auth_token: Optional[str] = None
+
+@router.post("/{project_id}/sync-async")
+async def trigger_async_sync(
+    project_id: str,
+    background_tasks: BackgroundTasks,
+    payload: Optional[AsyncSyncRequest] = None,
+    current_user: User = Depends(require_roles(["Administrator", "Engineering Manager", "Developer"])),
+    db: Session = Depends(get_db)
+):
+    project = db.query(Project).filter(Project.id == project_id, Project.org_id == current_user.org_id).first()
+    if not project:
+        raise HTTPException(status_code=404, detail="Project not found")
+
+    conn = db.query(RepositoryConnection).filter(RepositoryConnection.project_id == project_id).first()
+    if not conn or not conn.repo_url:
+        raise HTTPException(status_code=400, detail="No repository configured for this project. Connect a repository first.")
+
+    branch = (payload and payload.branch) or conn.selected_branch or "main"
+    auth_token = payload and payload.auth_token
+
+    try:
+        job_id = ingestion_job_manager.create_job(
+            project_id=project_id,
+            org_id=current_user.org_id,
+            provider=conn.provider
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=429, detail=str(e))
+
+    conn.status = "syncing"
+    conn.last_sync_status = "in_progress"
+    db.commit()
+
+    background_tasks.add_task(
+        execute_async_ingestion,
+        job_id=job_id,
+        project_id=project_id,
+        org_id=current_user.org_id,
+        repo_url=conn.repo_url,
+        auth_token=auth_token,
+        branch=branch,
+        provider=conn.provider
+    )
+
+    return {
+        "message": "Repository synchronization initiated in background",
+        "job_id": job_id,
+        "status": "pending",
+        "progress": 0
+    }
+
+@router.get("/jobs/{job_id}")
+def get_ingestion_job_status(
+    job_id: str,
+    current_user: User = Depends(get_current_user)
+):
+    """Poll asynchronous repository ingestion progress and status."""
+    job = ingestion_job_manager.get_job(job_id, org_id=current_user.org_id)
+    if not job:
+        raise HTTPException(status_code=404, detail="Ingestion job not found")
+    return job
 
 @router.delete("/{project_id}")
 def disconnect_repository(
