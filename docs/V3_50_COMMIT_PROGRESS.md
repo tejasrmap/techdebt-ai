@@ -12,8 +12,8 @@
 |---|---|---|---|---|---|---|
 | **01** | `chore: establish v3.0.0 development branch and architecture inventory` | **COMPLETE** | `docs/V3_*`, `tests/conftest.py` | Pytest, Vitest, tsc | PASS (4 passed, tsc 0, backend baseline) | `7614127` |
 | **02** | `fix: resolve critical password reset and account security vulnerabilities` | **COMPLETE** | `backend/app/api/v1/auth.py`, `backend/app/services/rate_limiter.py`, `backend/tests/test_password_reset.py` | Pytest (test_password_reset, test_api) | PASS (10 passed) | `a94e8c2` |
-| **03** | `feat: implement email verification and secure account lifecycle` | **COMPLETE** | `backend/app/api/v1/auth.py`, `backend/app/schemas/schemas.py`, `backend/tests/test_email_verification_and_lifecycle.py` | Pytest (lifecycle, reset, api) | PASS (12 passed) | Pending |
-| **04** | `fix: secure credentials sessions and sensitive configuration` | Planned | - | - | - | - |
+| **03** | `feat: implement email verification and secure account lifecycle` | **COMPLETE** | `backend/app/api/v1/auth.py`, `backend/app/schemas/schemas.py`, `backend/tests/test_email_verification_and_lifecycle.py` | Pytest (lifecycle, reset, api) | PASS (12 passed) | `6fb93b6` |
+| **04** | `fix: secure credentials sessions and sensitive configuration` | **COMPLETE** | `backend/app/services/crypto_service.py`, `backend/tests/test_crypto_security.py` | Pytest (crypto, core) | PASS (15 passed) | Pending |
 | **05** | `fix: implement strict organization authorization and tenant isolation` | Planned | - | - | - | - |
 | **06** | `feat: complete role-based access control` | Planned | - | - | - | - |
 | **07** | `feat: complete organization and workspace management` | Planned | - | - | - | - |
@@ -95,5 +95,16 @@
 - **Tests Executed:** `pytest tests/test_email_verification_and_lifecycle.py tests/test_password_reset.py tests/test_api.py`.
 - **Test Results:** 12 passed, 0 failed.
 - **Documentation Updated:** `docs/V3_50_COMMIT_PROGRESS.md`.
+- **Commit Hash:** `6fb93b6`.
+- **Remaining Issues:** Proceed to Commit 04.
+
+### COMMIT 04
+- **Title:** `fix: secure credentials sessions and sensitive configuration`
+- **Scope:** Cryptographic credential security, secure decryption error semantics, preventing ciphertext leakage, multi-key secret rotation.
+- **Files Changed:** `backend/app/services/crypto_service.py`, `backend/tests/test_crypto_security.py`, `docs/V3_50_COMMIT_PROGRESS.md`.
+- **Implementation Summary:** Replaced dangerous plaintext fallback in `decrypt_credential` with strict safe-fallback or `CredentialDecryptionError` exception. Added multi-key rotation mechanism supporting `ENCRYPTION_KEY_FALLBACKS` and `rotate_credential()`. Added 3 unit tests verifying that ciphertext is never treated as a plaintext credential.
+- **Tests Executed:** `pytest tests/test_crypto_security.py tests/test_core.py`.
+- **Test Results:** 15 passed, 0 failed.
+- **Documentation Updated:** `docs/V3_50_COMMIT_PROGRESS.md`.
 - **Commit Hash:** Assigned upon commit.
-- **Remaining Issues:** Proceed to Commit 04 (Secure credentials sessions and sensitive configuration).
+- **Remaining Issues:** Proceed to Commit 05 (Strict organization authorization and tenant isolation).
