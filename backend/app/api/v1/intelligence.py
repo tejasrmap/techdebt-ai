@@ -3,12 +3,14 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 from typing import List, Optional, Dict, Any
 from app.database import get_db
-from app.models.all_models import User, HistoricalAssessment, Project
+from app.models.all_models import User, HistoricalAssessment, Project, ProjectTechnology, Technology
 from app.schemas.schemas import TechnologyComparisonRequest, TechnologyComparisonResponse, ComparisonCategory
 from app.services.auth_service import get_current_user
 from app.services.firecrawl_service import FirecrawlIntelligenceService
 from app.services.ai_analyzer import AITechnologyDebtAnalyzer
 from app.services.memento_adapter import MementoMemoryAdapter
+from app.services.vulnerability_service import VulnerabilityService
+from pydantic import BaseModel
 
 router = APIRouter(prefix="/intelligence", tags=["Intelligence & Memory"])
 
@@ -156,4 +158,106 @@ async def get_historical_memory(
             for h in history
         ]
     }
+
+class VulnerabilityCheckRequest(BaseModel):
+    package: Optional[str] = None
+    version: Optional[str] = None
+    ecosystem: Optional[str] = None
+    dependencies: Optional[List[Dict[str, Any]]] = None
+
+class LicenseAuditRequest(BaseModel):
+    license: Optional[str] = None
+    dependencies: Optional[List[Dict[str, Any]]] = None
+    is_commercial: bool = True
+
+@router.post("/vulnerabilities/check")
+def check_vulnerabilities(
+    req: VulnerabilityCheckRequest,
+    current_user: User = Depends(get_current_user)
+):
+    if req.package and req.version:
+        vulns = VulnerabilityService.check_package_vulnerabilities(
+            package_name=req.package,
+            version_str=req.version,
+            ecosystem=req.ecosystem
+        )
+        return {
+            "package": req.package,
+            "version": req.version,
+            "ecosystem": req.ecosystem,
+            "vulnerabilities": vulns,
+            "count": len(vulns),
+            "highest_severity": max([v["severity"] for v in vulns], default="NONE")
+        }
+    elif req.dependencies:
+        results = []
+        for dep in req.dependencies:
+            name = dep.get("name", "")
+            ver = dep.get("version", "latest")
+            eco = dep.get("ecosystem")
+            vulns = VulnerabilityService.check_package_vulnerabilities(name, ver, eco)
+            if vulns:
+                results.extend(vulns)
+        return {
+            "vulnerabilities": results,
+            "count": len(results),
+            "highest_severity": max([v["severity"] for v in results], default="NONE")
+        }
+    else:
+        raise HTTPException(status_code=400, detail="Provide either package + version or a dependencies list.")
+
+@router.post("/licenses/audit")
+def audit_licenses(
+    req: LicenseAuditRequest,
+    current_user: User = Depends(get_current_user)
+):
+    if req.license:
+        audit = VulnerabilityService.audit_license(req.license, is_commercial_product=req.is_commercial)
+        return audit
+    elif req.dependencies:
+        findings = []
+        status_counts = {"COMPLIANT": 0, "WARNING": 0, "VIOLATION": 0}
+        for dep in req.dependencies:
+            lic = dep.get("license")
+            res = VulnerabilityService.audit_license(lic, is_commercial_product=req.is_commercial)
+            res["package"] = dep.get("name", "unknown")
+            findings.append(res)
+            st = res["compliance_status"]
+            if st in status_counts:
+                status_counts[st] += 1
+        return {
+            "findings": findings,
+            "summary": status_counts,
+            "has_violations": status_counts["VIOLATION"] > 0
+        }
+    else:
+        raise HTTPException(status_code=400, detail="Provide either a license string or a dependencies list.")
+
+@router.get("/project/{project_id}/security-audit")
+def get_project_security_audit(
+    project_id: str,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    project = db.query(Project).filter(Project.id == project_id, Project.org_id == current_user.org_id).first()
+    if not project:
+        raise HTTPException(status_code=404, detail="Project not found or unauthorized")
+
+    links = db.query(ProjectTechnology).filter(ProjectTechnology.project_id == project.id).all()
+    dep_payloads = []
+    for link in links:
+        tech = db.query(Technology).filter(Technology.id == link.technology_id).first()
+        if tech:
+            dep_payloads.append({
+                "name": tech.name,
+                "version": link.installed_version or "latest",
+                "ecosystem": tech.ecosystem or "",
+                "license": getattr(tech, "license", "MIT") # Default permissive if not set
+            })
+
+    audit_result = VulnerabilityService.audit_project(dep_payloads, is_commercial_product=True)
+    audit_result["project_id"] = project.id
+    audit_result["project_name"] = project.name
+    return audit_result
+
 
