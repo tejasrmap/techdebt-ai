@@ -491,8 +491,19 @@
 - **Tests Executed:** `pytest backend/tests/test_notifications_and_alerts.py`.
 - **Test Results:** 3 passed, 0 failed.
 - **Documentation Updated:** `docs/V3_50_COMMIT_PROGRESS.md`.
-- **Commit Hash:** `7331a12`.
+- **Commit Hash:** `02e101b`.
 - **Remaining Issues:** Proceed to Commit 40 (Complete responsive UI and accessibility).
+
+### COMMIT 40
+- **Title:** `feat: complete responsive UI and accessibility`
+- **Scope:** Complete WCAG 2.1 AA accessibility compliance and responsive mobile layout, including screen-reader skip-to-content links, semantic navigation landmarks, focus rings, responsive mobile drawer and hamburger toggles, and ARIA state management.
+- **Files Changed:** `frontend/src/App.tsx`, `frontend/src/components/Navbar.tsx`, `frontend/src/components/Sidebar.tsx`, `frontend/src/context/AuthContext.tsx`, `frontend/src/test/responsive_accessibility.test.tsx`, `docs/V3_50_COMMIT_PROGRESS.md`.
+- **Implementation Summary:** Integrated keyboard-accessible skip-to-content anchor in `App.tsx` pointing to `#main-content` landmark. Added responsive sliding navigation drawer with mobile backdrop and hamburger toggle in `Navbar.tsx` equipped with `aria-controls`, `aria-expanded`, and `aria-label`. Added `role="navigation"`, `aria-label="Main Navigation"`, and conditional `aria-current="page"` indicators across all navigation items in `Sidebar.tsx`. Updated `AuthContext.tsx` with exported context. Added 5 Vitest component tests verifying accessibility roles, ARIA attributes, mobile interaction handlers, and clean TypeScript/Vite production build.
+- **Tests Executed:** `npm run test` (9 passed, 0 failed), `npm run build` (success).
+- **Test Results:** 9 passed, 0 failed.
+- **Documentation Updated:** `docs/V3_50_COMMIT_PROGRESS.md`.
+- **Commit Hash:** `2503dce`.
+- **Remaining Issues:** Milestone 8 complete (80% of roadmap achieved: 40/50 commits). Proceed to Milestone 9 (Commits 41–45: Database, Infrastructure and Reliability).
 
 
 

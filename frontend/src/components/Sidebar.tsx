@@ -18,7 +18,8 @@ import {
   FileCode2,
   GitBranch,
   BadgePercent,
-  UserCheck
+  UserCheck,
+  X
 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 
@@ -44,9 +45,16 @@ export type NavItem =
 interface SidebarProps {
   currentTab: NavItem;
   onSelectTab: (tab: NavItem) => void;
+  isOpen?: boolean;
+  onClose?: () => void;
 }
 
-export const Sidebar: React.FC<SidebarProps> = ({ currentTab, onSelectTab }) => {
+export const Sidebar: React.FC<SidebarProps> = ({
+  currentTab,
+  onSelectTab,
+  isOpen = false,
+  onClose
+}) => {
   const { user, logout } = useAuth();
 
   const navItems = [
@@ -69,67 +77,107 @@ export const Sidebar: React.FC<SidebarProps> = ({ currentTab, onSelectTab }) => 
     { id: 'settings' as NavItem, label: 'Settings', icon: Settings },
   ];
 
+  const handleSelect = (id: NavItem) => {
+    onSelectTab(id);
+    if (onClose) {
+      onClose();
+    }
+  };
+
   return (
-    <aside className="w-64 bg-slate-900 border-r border-slate-800 flex flex-col justify-between h-screen select-none">
-      <div>
-        {/* Brand */}
-        <div className="p-5 flex items-center gap-3 border-b border-slate-800/80">
-          <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-indigo-500 to-cyan-500 flex items-center justify-center shadow-lg shadow-indigo-500/20">
-            <Sparkles className="w-5 h-5 text-white" />
-          </div>
-          <div>
-            <h1 className="font-bold text-slate-100 text-base leading-tight tracking-tight flex items-center gap-1.5">
-              TechDebt <span className="text-cyan-400 font-mono text-xs px-1.5 py-0.5 rounded bg-cyan-950/60 border border-cyan-800/50">AI</span>
-            </h1>
-            <p className="text-[11px] text-slate-400">Review & Modernization</p>
-          </div>
-        </div>
+    <>
+      {/* Mobile Backdrop */}
+      {isOpen && (
+        <div
+          className="fixed inset-0 bg-slate-950/80 backdrop-blur-sm z-40 md:hidden"
+          onClick={onClose}
+          aria-hidden="true"
+        />
+      )}
 
-        {/* Navigation list */}
-        <nav className="p-3 space-y-1">
-          {navItems.map((item) => {
-            const Icon = item.icon;
-            const isActive = currentTab === item.id;
-            return (
+      {/* Sidebar Navigation */}
+      <aside
+        id="sidebar-navigation"
+        role="navigation"
+        aria-label="Main Navigation"
+        className={`fixed inset-y-0 left-0 z-50 w-64 bg-slate-900 border-r border-slate-800 flex flex-col justify-between select-none transition-transform duration-200 ease-in-out md:static md:translate-x-0 ${
+          isOpen ? 'translate-x-0' : '-translate-x-full md:translate-x-0'
+        }`}
+      >
+        <div className="overflow-y-auto max-h-[calc(100vh-80px)]">
+          {/* Brand */}
+          <div className="p-5 flex items-center justify-between border-b border-slate-800/80">
+            <div className="flex items-center gap-3">
+              <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-indigo-500 to-cyan-500 flex items-center justify-center shadow-lg shadow-indigo-500/20">
+                <Sparkles className="w-5 h-5 text-white" aria-hidden="true" />
+              </div>
+              <div>
+                <h1 className="font-bold text-slate-100 text-base leading-tight tracking-tight flex items-center gap-1.5">
+                  TechDebt <span className="text-cyan-400 font-mono text-xs px-1.5 py-0.5 rounded bg-cyan-950/60 border border-cyan-800/50">AI</span>
+                </h1>
+                <p className="text-[11px] text-slate-400">Review & Modernization</p>
+              </div>
+            </div>
+
+            {/* Mobile close button */}
+            {onClose && (
               <button
-                key={item.id}
-                onClick={() => onSelectTab(item.id)}
-                className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-xs font-medium transition-all ${
-                  isActive
-                    ? 'bg-indigo-600/15 text-indigo-300 border border-indigo-500/30 shadow-sm'
-                    : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800/60 border border-transparent'
-                }`}
+                type="button"
+                onClick={onClose}
+                aria-label="Close navigation sidebar"
+                className="md:hidden p-1.5 rounded-lg text-slate-400 hover:text-slate-200 hover:bg-slate-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500"
               >
-                <Icon className={`w-4 h-4 ${isActive ? 'text-indigo-400' : 'text-slate-400'}`} />
-                <span>{item.label}</span>
+                <X className="w-5 h-5" aria-hidden="true" />
               </button>
-            );
-          })}
-        </nav>
-      </div>
-
-      {/* User profile & logout */}
-      <div className="p-3 border-t border-slate-800/80 bg-slate-950/30">
-        <div className="flex items-center justify-between p-2 rounded-lg bg-slate-800/40 border border-slate-800">
-          <div className="flex items-center gap-2.5 min-w-0">
-            <div className="w-8 h-8 rounded-full bg-slate-700 flex items-center justify-center font-bold text-xs text-indigo-300 border border-slate-600 shrink-0">
-              {user?.full_name?.charAt(0) || 'U'}
-            </div>
-            <div className="min-w-0">
-              <p className="text-xs font-medium text-slate-200 truncate">{user?.full_name}</p>
-              <p className="text-[10px] text-slate-400 truncate">{user?.role}</p>
-            </div>
+            )}
           </div>
-          <button
-            onClick={logout}
-            title="Log Out"
-            className="p-1.5 rounded-md text-slate-400 hover:text-rose-400 hover:bg-rose-500/10 transition-colors"
-          >
-            <LogOut className="w-4 h-4" />
-          </button>
+
+          {/* Navigation list */}
+          <nav className="p-3 space-y-1">
+            {navItems.map((item) => {
+              const Icon = item.icon;
+              const isActive = currentTab === item.id;
+              return (
+                <button
+                  key={item.id}
+                  onClick={() => handleSelect(item.id)}
+                  aria-current={isActive ? 'page' : undefined}
+                  className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-xs font-medium transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 ${
+                    isActive
+                      ? 'bg-indigo-600/15 text-indigo-300 border border-indigo-500/30 shadow-sm'
+                      : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800/60 border border-transparent'
+                  }`}
+                >
+                  <Icon className={`w-4 h-4 ${isActive ? 'text-indigo-400' : 'text-slate-400'}`} aria-hidden="true" />
+                  <span>{item.label}</span>
+                </button>
+              );
+            })}
+          </nav>
         </div>
-      </div>
-    </aside>
+
+        {/* User profile & logout */}
+        <div className="p-3 border-t border-slate-800/80 bg-slate-950/30 shrink-0">
+          <div className="flex items-center justify-between p-2 rounded-lg bg-slate-800/40 border border-slate-800">
+            <div className="flex items-center gap-2.5 min-w-0">
+              <div className="w-8 h-8 rounded-full bg-slate-700 flex items-center justify-center font-bold text-xs text-indigo-300 border border-slate-600 shrink-0">
+                {user?.full_name?.charAt(0) || 'U'}
+              </div>
+              <div className="min-w-0">
+                <p className="text-xs font-medium text-slate-200 truncate">{user?.full_name}</p>
+                <p className="text-[10px] text-slate-400 truncate">{user?.role}</p>
+              </div>
+            </div>
+            <button
+              onClick={logout}
+              aria-label="Log out of account"
+              className="p-1.5 rounded-md text-slate-400 hover:text-rose-400 hover:bg-rose-500/10 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose-500"
+            >
+              <LogOut className="w-4 h-4" aria-hidden="true" />
+            </button>
+          </div>
+        </div>
+      </aside>
+    </>
   );
 };
-

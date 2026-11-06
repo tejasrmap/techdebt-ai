@@ -24,6 +24,7 @@ import { UserProfileView } from './views/UserProfileView';
 const MainApp: React.FC = () => {
   const { isAuthenticated, isLoading } = useAuth();
   const [currentTab, setCurrentTab] = useState<NavItem>('overview');
+  const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const [targetAssessmentProjectId, setTargetAssessmentProjectId] = useState<string | undefined>(undefined);
 
   if (isLoading) {
@@ -91,14 +92,32 @@ const MainApp: React.FC = () => {
 
   return (
     <div className="flex h-screen bg-slate-950 text-slate-100 overflow-hidden font-sans">
-      {/* Sidebar Navigation */}
-      <Sidebar currentTab={currentTab} onSelectTab={setCurrentTab} />
+      {/* Skip to Main Content Link for Keyboard and Screen Reader Accessibility */}
+      <a
+        href="#main-content"
+        className="sr-only focus:not-sr-only focus:fixed focus:top-3 focus:left-3 focus:z-50 focus:px-4 focus:py-2 focus:bg-indigo-600 focus:text-white focus:rounded-md focus:shadow-xl focus:outline-none focus:ring-2 focus:ring-white text-xs font-semibold"
+      >
+        Skip to main content
+      </a>
+
+      {/* Responsive Sidebar Navigation */}
+      <Sidebar
+        currentTab={currentTab}
+        onSelectTab={setCurrentTab}
+        isOpen={isSidebarOpen}
+        onClose={() => setIsSidebarOpen(false)}
+      />
 
       {/* Main Workspace Area */}
       <div className="flex-1 flex flex-col min-w-0 overflow-hidden">
-        <Navbar title={pageInfo.title} subtitle={pageInfo.subtitle} />
+        <Navbar
+          title={pageInfo.title}
+          subtitle={pageInfo.subtitle}
+          onToggleSidebar={() => setIsSidebarOpen(!isSidebarOpen)}
+          isSidebarOpen={isSidebarOpen}
+        />
 
-        <main className="flex-1 overflow-y-auto">
+        <main id="main-content" role="main" tabIndex={-1} className="flex-1 overflow-y-auto focus:outline-none">
           {currentTab === 'overview' && <DashboardView onNavigate={setCurrentTab} />}
           {currentTab === 'projects' && <ProjectsView onRunAssessment={handleRunAssessmentFromProjects} />}
           {currentTab === 'repositories' && <RepositoryView />}
