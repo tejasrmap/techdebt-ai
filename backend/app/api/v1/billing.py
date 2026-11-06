@@ -1,6 +1,7 @@
 import os
 from typing import Optional, Dict, Any, List
 from fastapi import APIRouter, Depends, HTTPException, status, Request
+from fastapi.responses import HTMLResponse
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
@@ -153,6 +154,76 @@ def get_invoices(
         }
         for inv in invoices
     ]
+
+@router.get("/invoices/{invoice_id}")
+def get_invoice_detail(
+    invoice_id: str,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """Retrieve detailed invoice record for caller's organization."""
+    inv = db.query(Invoice).filter(Invoice.id == invoice_id, Invoice.org_id == current_user.org_id).first()
+    if not inv:
+        raise HTTPException(status_code=404, detail="Invoice not found or unauthorized")
+
+    org = db.query(Organization).filter(Organization.id == inv.org_id).first()
+    return {
+        "id": inv.id,
+        "invoice_number": inv.invoice_number,
+        "org_id": inv.org_id,
+        "organization_name": org.name if org else "",
+        "amount_cents": inv.amount_cents,
+        "amount_dollars": inv.amount_due,
+        "currency": inv.currency,
+        "status": inv.status,
+        "paid_at": inv.paid_at.isoformat() if inv.paid_at else None,
+        "created_at": inv.created_at.isoformat() if inv.created_at else None,
+        "download_url": f"/api/v1/billing/invoices/{inv.id}/download"
+    }
+
+@router.get("/invoices/{invoice_id}/download", response_class=HTMLResponse)
+def download_invoice(
+    invoice_id: str,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """Downloads printable HTML invoice receipt."""
+    inv = db.query(Invoice).filter(Invoice.id == invoice_id, Invoice.org_id == current_user.org_id).first()
+    if not inv:
+        raise HTTPException(status_code=404, detail="Invoice not found or unauthorized")
+
+    org = db.query(Organization).filter(Organization.id == inv.org_id).first()
+    html_content = BillingService.render_invoice_html(inv, org)
+    return HTMLResponse(
+        content=html_content,
+        headers={"Content-Disposition": f'inline; filename="{inv.invoice_number}.html"'}
+    )
+
+class GenerateManualInvoiceRequest(BaseModel):
+    amount_dollars: float
+    description: Optional[str] = "Manual subscription credit"
+
+@router.post("/invoices/generate-manual")
+def generate_manual_invoice(
+    req: GenerateManualInvoiceRequest,
+    current_user: User = Depends(require_roles(["SuperAdmin", "Owner", "Administrator"])),
+    db: Session = Depends(get_db)
+):
+    """Manually creates an invoice record for the organization."""
+    cents = int(req.amount_dollars * 100)
+    inv = BillingService.generate_invoice(
+        db=db,
+        org_id=current_user.org_id,
+        amount_cents=cents,
+        description=req.description or "Manual subscription invoice"
+    )
+    return {
+        "message": "Invoice generated successfully",
+        "invoice_id": inv.id,
+        "invoice_number": inv.invoice_number,
+        "amount_dollars": req.amount_dollars
+    }
+
 
 @router.get("/usage")
 def get_usage(

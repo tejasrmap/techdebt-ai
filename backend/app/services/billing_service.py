@@ -526,4 +526,107 @@ class BillingService:
             "event_id": event_id
         }
 
+    @classmethod
+    def generate_invoice(
+        cls,
+        db: Session,
+        org_id: str,
+        amount_cents: int,
+        description: str = "Subscription renewal",
+        status: str = "paid"
+    ) -> Invoice:
+        inv = Invoice(
+            org_id=org_id,
+            invoice_number=f"INV-{datetime.utcnow().strftime('%Y%m')}-{uuid.uuid4().hex[:6].upper()}",
+            amount_cents=amount_cents,
+            currency="usd",
+            status=status,
+            hosted_invoice_url=f"/api/v1/billing/invoices/download?id={uuid.uuid4().hex[:8]}",
+            paid_at=datetime.utcnow() if status == "paid" else None
+        )
+        db.add(inv)
+        db.commit()
+        db.refresh(inv)
+        return inv
+
+    @classmethod
+    def render_invoice_html(cls, invoice: Invoice, org: Organization) -> str:
+        """
+        Renders a commercial, printable invoice HTML receipt for financial accounting.
+        """
+        amount_dollars = (invoice.amount_cents or 0) / 100.0
+        date_str = invoice.created_at.strftime("%B %d, %Y") if invoice.created_at else "N/A"
+        
+        return f"""<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Invoice {invoice.invoice_number} - TechDebt AI</title>
+<style>
+  body {{ font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; color: #1e293b; padding: 40px; max-width: 800px; margin: auto; }}
+  .header {{ display: flex; justify-content: space-between; border-bottom: 2px solid #e2e8f0; padding-bottom: 20px; }}
+  .brand {{ font-size: 24px; font-weight: 700; color: #4338ca; }}
+  .vendor {{ font-size: 13px; color: #64748b; margin-top: 6px; }}
+  .details {{ display: flex; justify-content: space-between; margin-top: 30px; }}
+  .badge {{ display: inline-block; padding: 4px 12px; border-radius: 9999px; font-size: 12px; font-weight: 600; text-transform: uppercase; }}
+  .badge-paid {{ background: #dcfce7; color: #15803d; }}
+  .table {{ width: 100%; border-collapse: collapse; margin-top: 30px; }}
+  .table th {{ background: #f8fafc; text-align: left; padding: 12px; font-size: 13px; border-bottom: 1px solid #cbd5e1; }}
+  .table td {{ padding: 14px 12px; border-bottom: 1px solid #e2e8f0; font-size: 14px; }}
+  .total {{ text-align: right; margin-top: 25px; font-size: 18px; font-weight: 700; }}
+  @media print {{ body {{ padding: 0; }} }}
+</style>
+</head>
+<body>
+  <div class="header">
+    <div>
+      <div class="brand">TechDebt AI</div>
+      <div class="vendor">GT InnoX LLP &bull; Software Engineering Intelligence Platform</div>
+    </div>
+    <div style="text-align: right;">
+      <h2 style="margin: 0; color: #0f172a;">INVOICE</h2>
+      <div style="color: #64748b; font-size: 14px; margin-top: 4px;">#{invoice.invoice_number}</div>
+      <div style="margin-top: 8px;"><span class="badge badge-paid">{invoice.status}</span></div>
+    </div>
+  </div>
+
+  <div class="details">
+    <div>
+      <div style="font-size: 12px; color: #64748b; text-transform: uppercase;">Billed To:</div>
+      <div style="font-size: 16px; font-weight: 600; margin-top: 4px;">{org.name}</div>
+      <div style="font-size: 13px; color: #64748b;">Account: {org.slug}</div>
+    </div>
+    <div style="text-align: right;">
+      <div style="font-size: 13px;"><strong>Date Issued:</strong> {date_str}</div>
+      <div style="font-size: 13px; margin-top: 4px;"><strong>Payment Method:</strong> Credit Card (Stripe)</div>
+    </div>
+  </div>
+
+  <table class="table">
+    <thead>
+      <tr>
+        <th>Description</th>
+        <th>Qty</th>
+        <th>Unit Price</th>
+        <th style="text-align: right;">Amount</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td>TechDebt AI SaaS Subscription ({org.plan.capitalize() if org.plan else 'Pro'})</td>
+        <td>1</td>
+        <td>${amount_dollars:,.2f}</td>
+        <td style="text-align: right;">${amount_dollars:,.2f}</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <div class="total">
+    Total Paid: ${amount_dollars:,.2f} USD
+  </div>
+</body>
+</html>
+"""
+
+
 

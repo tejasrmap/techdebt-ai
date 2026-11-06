@@ -436,8 +436,20 @@
 - **Tests Executed:** `pytest backend/tests/test_stripe_webhook_processing.py`.
 - **Test Results:** 4 passed, 0 failed.
 - **Documentation Updated:** `docs/V3_50_COMMIT_PROGRESS.md`.
-- **Commit Hash:** `55d9b19`.
+- **Commit Hash:** `5d6e755`.
 - **Remaining Issues:** Proceed to Commit 35 (Automated invoice generation and billing history).
+
+### COMMIT 35
+- **Title:** `feat: implement automated invoice generation and billing history`
+- **Scope:** Automated invoice record creation, billing history retrieval, printable HTML invoice rendering with vendor/tax details and itemized pricing tables, strict cross-tenant isolation, and invoice download endpoints.
+- **Files Changed:** `backend/app/services/billing_service.py`, `backend/app/api/v1/billing.py`, `backend/tests/test_invoice_generation_and_history.py`, `docs/V3_50_COMMIT_PROGRESS.md`.
+- **Implementation Summary:** Implemented `BillingService.generate_invoice` and `BillingService.render_invoice_html` generating printable commercial receipts with GT InnoX LLP vendor credentials, tax breakdown, and paid status badges. Added `GET /api/v1/billing/invoices/{invoice_id}`, `GET /api/v1/billing/invoices/{invoice_id}/download`, and `POST /api/v1/billing/invoices/generate-manual` with strict tenant isolation. Added 2 unit and integration tests verifying invoice creation, detail querying, HTML generation, and cross-tenant security.
+- **Tests Executed:** `pytest backend/tests/test_invoice_generation_and_history.py`.
+- **Test Results:** 2 passed, 0 failed.
+- **Documentation Updated:** `docs/V3_50_COMMIT_PROGRESS.md`.
+- **Commit Hash:** `99ed666`.
+- **Remaining Issues:** Milestone 7 complete (70% of roadmap achieved: 35/50 commits). Proceed to Milestone 8 (Commit 36: Customer-facing technical debt dashboard).
+
 
 
 
