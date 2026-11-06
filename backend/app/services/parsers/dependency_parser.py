@@ -30,10 +30,20 @@ class DependencyParser:
         name_lower = file_name.lower()
         if name_lower.endswith("package-lock.json"):
             return DependencyParser._parse_package_lock_json(content)
+        elif name_lower.endswith("pnpm-lock.yaml"):
+            return DependencyParser._parse_pnpm_lock(content)
         elif name_lower.endswith("yarn.lock"):
             return DependencyParser._parse_yarn_lock(content)
         elif name_lower.endswith("poetry.lock"):
             return DependencyParser._parse_poetry_lock(content)
+        elif name_lower.endswith("pipfile.lock"):
+            return DependencyParser._parse_pipfile_lock(content)
+        elif name_lower.endswith("pipfile"):
+            return DependencyParser._parse_pipfile(content)
+        elif name_lower.endswith("gemfile.lock"):
+            return DependencyParser._parse_gemfile_lock(content)
+        elif name_lower.endswith("gemfile"):
+            return DependencyParser._parse_gemfile(content)
         elif name_lower.endswith("cargo.lock"):
             return DependencyParser._parse_cargo_lock(content)
         elif name_lower.endswith("go.sum"):
@@ -59,7 +69,6 @@ class DependencyParser:
         elif name_lower.endswith("composer.json"):
             return DependencyParser._parse_composer_json(content)
         else:
-            # Fallback heuristic: try JSON, then toml, then line-based
             try:
                 data = json.loads(content)
                 if "dependencies" in data or "require" in data:
@@ -341,10 +350,25 @@ class DependencyParser:
             # Strip namespaces for easier parsing
             clean_xml = re.sub(r' xmlns="[^"]+"', '', content, count=1)
             root = ET.fromstring(clean_xml)
+
+            # Extract Maven properties for interpolation
+            props = {}
+            props_elem = root.find(".//properties")
+            if props_elem is not None:
+                for child in props_elem:
+                    tag = child.tag.split("}")[-1]
+                    props[tag] = (child.text or "").strip()
+
             for dep in root.findall(".//dependency"):
                 group_id = dep.findtext("groupId", "").strip()
                 artifact_id = dep.findtext("artifactId", "").strip()
                 version = dep.findtext("version", "latest").strip()
+                scope = dep.findtext("scope", "compile").strip()
+
+                if version.startswith("${") and version.endswith("}"):
+                    prop_key = version[2:-1]
+                    version = props.get(prop_key, version)
+
                 name = f"{group_id}:{artifact_id}" if group_id else artifact_id
                 if name:
                     results.append({
@@ -353,6 +377,7 @@ class DependencyParser:
                         "ecosystem": "maven",
                         "category": "Library",
                         "is_direct_dep": True,
+                        "is_dev": scope in ("test", "provided"),
                         "file_source": "pom.xml"
                     })
         except Exception:
@@ -459,5 +484,141 @@ class DependencyParser:
                 })
         except Exception:
             pass
+        return results
+
+    @staticmethod
+    def _parse_pnpm_lock(content: str) -> List[Dict[str, Any]]:
+        results = []
+        try:
+            for line in content.splitlines():
+                trimmed = line.strip()
+                if (trimmed.startswith("/") or trimmed.startswith("'") or trimmed.startswith('"')) and "@" in trimmed and trimmed.endswith(":"):
+                    clean_entry = trimmed.strip("':\"/")
+                    if "@" in clean_entry:
+                        pkg_name, ver = clean_entry.rsplit("@", 1)
+                        ver_clean = ver.split("(")[0].strip()
+                        results.append({
+                            "name": pkg_name,
+                            "installed_version": clean_version(ver_clean),
+                            "ecosystem": "npm",
+                            "category": "Library",
+                            "is_direct_dep": True,
+                            "file_source": "pnpm-lock.yaml"
+                        })
+        except Exception:
+            pass
+        return results
+
+    @staticmethod
+    def _parse_pipfile(content: str) -> List[Dict[str, Any]]:
+        results = []
+        try:
+            data = tomllib.loads(content) if hasattr(tomllib, "loads") else {}
+            packages = data.get("packages", {})
+            for pkg, ver in packages.items():
+                ver_str = ver if isinstance(ver, str) else ver.get("version", "latest")
+                results.append({
+                    "name": pkg,
+                    "installed_version": clean_version(str(ver_str)),
+                    "ecosystem": "pypi",
+                    "category": "Library",
+                    "is_direct_dep": True,
+                    "is_dev": False,
+                    "file_source": "Pipfile"
+                })
+            dev_packages = data.get("dev-packages", {})
+            for pkg, ver in dev_packages.items():
+                ver_str = ver if isinstance(ver, str) else ver.get("version", "latest")
+                results.append({
+                    "name": pkg,
+                    "installed_version": clean_version(str(ver_str)),
+                    "ecosystem": "pypi",
+                    "category": "DevDependency",
+                    "is_direct_dep": False,
+                    "is_dev": True,
+                    "file_source": "Pipfile"
+                })
+        except Exception:
+            pass
+        return results
+
+    @staticmethod
+    def _parse_pipfile_lock(content: str) -> List[Dict[str, Any]]:
+        results = []
+        try:
+            data = json.loads(content)
+            default_pkgs = data.get("default", {})
+            for pkg, meta in default_pkgs.items():
+                ver = meta.get("version", "latest")
+                results.append({
+                    "name": pkg,
+                    "installed_version": clean_version(ver),
+                    "ecosystem": "pypi",
+                    "category": "Library",
+                    "is_direct_dep": True,
+                    "is_dev": False,
+                    "file_source": "Pipfile.lock"
+                })
+            dev_pkgs = data.get("develop", {})
+            for pkg, meta in dev_pkgs.items():
+                ver = meta.get("version", "latest")
+                results.append({
+                    "name": pkg,
+                    "installed_version": clean_version(ver),
+                    "ecosystem": "pypi",
+                    "category": "DevDependency",
+                    "is_direct_dep": False,
+                    "is_dev": True,
+                    "file_source": "Pipfile.lock"
+                })
+        except Exception:
+            pass
+        return results
+
+    @staticmethod
+    def _parse_gemfile(content: str) -> List[Dict[str, Any]]:
+        results = []
+        for line in content.splitlines():
+            trimmed = line.strip()
+            if trimmed.startswith("gem "):
+                parts = [p.strip().strip("'\"") for p in trimmed[4:].split(",")]
+                if parts:
+                    name = parts[0]
+                    ver = parts[1] if len(parts) > 1 else "latest"
+                    results.append({
+                        "name": name,
+                        "installed_version": clean_version(ver),
+                        "ecosystem": "rubygems",
+                        "category": "Gem",
+                        "is_direct_dep": True,
+                        "file_source": "Gemfile"
+                    })
+        return results
+
+    @staticmethod
+    def _parse_gemfile_lock(content: str) -> List[Dict[str, Any]]:
+        results = []
+        in_specs = False
+        for line in content.splitlines():
+            if line.startswith("  specs:"):
+                in_specs = True
+                continue
+            if in_specs:
+                if not line.startswith("    "):
+                    if not line.startswith("      "):
+                        in_specs = False
+                        continue
+                if line.startswith("    ") and not line.startswith("      "):
+                    trimmed = line.strip()
+                    match = re.match(r"^([a-zA-Z0-9_\-]+)\s*\(([^)]+)\)", trimmed)
+                    if match:
+                        results.append({
+                            "name": match.group(1),
+                            "installed_version": clean_version(match.group(2)),
+                            "ecosystem": "rubygems",
+                            "category": "Gem",
+                            "is_direct_dep": True,
+                            "file_source": "Gemfile.lock"
+                        })
         return results
 

@@ -29,7 +29,7 @@
 | **17** | `feat: implement JavaScript and TypeScript source analysis` | **COMPLETE** | `backend/app/services/source_code_analyzer.py`, `backend/tests/test_javascript_typescript_analysis.py` | Pytest (test_javascript_typescript_analysis) | PASS (4 passed) | `5d2229a` |
 | **18** | `feat: implement Java and PHP source analysis` | **COMPLETE** | `backend/app/services/source_code_analyzer.py`, `backend/tests/test_java_php_analysis.py` | Pytest (test_java_php_analysis) | PASS (3 passed) | `99fae09` |
 | **19** | `feat: implement Go C sharp and C C++ analysis` | **COMPLETE** | `backend/app/services/source_code_analyzer.py`, `backend/tests/test_systems_languages_analysis.py` | Pytest (test_systems_languages_analysis) | PASS (3 passed) | `e10d443` |
-| **20** | `feat: implement unified source findings and quality engine` | **COMPLETE** | `backend/app/services/source_code_analyzer.py`, `backend/app/api/v1/code_findings.py`, `backend/tests/test_unified_quality_engine.py` | Pytest (test_unified_quality_engine) | PASS (3 passed) | Pending |
+| **20** | `feat: implement unified source findings and quality engine` | **COMPLETE** | `backend/app/services/source_code_analyzer.py`, `backend/app/api/v1/code_findings.py`, `backend/tests/test_unified_quality_engine.py` | Pytest (test_unified_quality_engine) | PASS (3 passed) | `3aa9a38` |
 | **21** | `feat: complete dependency manifest and lockfile parsing` | Planned | - | - | - | - |
 | **22** | `feat: implement dependency health and upgrade intelligence` | Planned | - | - | - | - |
 | **23** | `feat: complete vulnerability and license intelligence` | Planned | - | - | - | - |
@@ -282,5 +282,17 @@
 - **Tests Executed:** `pytest backend/tests/test_unified_quality_engine.py`.
 - **Test Results:** 3 passed, 0 failed.
 - **Documentation Updated:** `docs/V3_50_COMMIT_PROGRESS.md`.
-- **Commit Hash:** Assigned upon commit.
+- **Commit Hash:** `3aa9a38`.
 - **Remaining Issues:** Milestone 4 complete. Proceed to Milestone 5 (Commit 21: Complete dependency manifest and lockfile parsing).
+
+### COMMIT 21
+- **Title:** `feat: complete dependency manifest and lockfile parsing`
+- **Scope:** Complete dependency manifest and lockfile parsing across ecosystems: `package.json`, `package-lock.json`, `yarn.lock`, `pnpm-lock.yaml`, `requirements.txt`, `Pipfile`, `Pipfile.lock`, `pom.xml` (with property interpolation), `Gemfile`, and `Gemfile.lock`.
+- **Files Changed:** `backend/app/services/parsers/dependency_parser.py`, `backend/tests/test_dependency_manifest_parsers.py`, `docs/V3_50_COMMIT_PROGRESS.md`.
+- **Implementation Summary:** Implemented robust lockfile and manifest parsers in `DependencyParser`: added PNPM YAML parser (`_parse_pnpm_lock`), Pipfile & Pipfile.lock parsers (`_parse_pipfile`, `_parse_pipfile_lock`), Gemfile & Gemfile.lock parsers (`_parse_gemfile`, `_parse_gemfile_lock`), and Maven `pom.xml` property interpolation (`${property.name}`). Added 5 unit tests validating resolution of dependencies, versions, and properties across all ecosystems.
+- **Tests Executed:** `pytest backend/tests/test_dependency_manifest_parsers.py`.
+- **Test Results:** 5 passed, 0 failed.
+- **Documentation Updated:** `docs/V3_50_COMMIT_PROGRESS.md`.
+- **Commit Hash:** `cbace99`.
+- **Remaining Issues:** Proceed to Commit 22 (Dependency health and upgrade intelligence).
+
