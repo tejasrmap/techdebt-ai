@@ -469,8 +469,19 @@
 - **Tests Executed:** `pytest backend/tests/test_assessment_repository_ux.py`.
 - **Test Results:** 2 passed, 0 failed.
 - **Documentation Updated:** `docs/V3_50_COMMIT_PROGRESS.md`.
-- **Commit Hash:** `ddfee89`.
+- **Commit Hash:** `2630bff`.
 - **Remaining Issues:** Proceed to Commit 38 (Implement professional PDF CSV and JSON reporting).
+
+### COMMIT 38
+- **Title:** `feat: implement professional PDF CSV and JSON reporting`
+- **Scope:** Professional executive PDF reports, structured CSV audit exports, and machine-readable JSON reports for single assessments and organization-wide portfolios, with GT InnoX LLP branding, 5-pillar breakdown, financial liability in USD, and strict multi-tenant isolation.
+- **Files Changed:** `backend/app/services/report_generator.py`, `backend/app/api/v1/reports.py`, `backend/tests/test_report_exports.py`, `docs/V3_50_COMMIT_PROGRESS.md`.
+- **Implementation Summary:** Implemented `ReportGenerator.generate_json`, `ReportGenerator.generate_portfolio_pdf`, and `ReportGenerator.generate_portfolio_csv`. Enhanced `generate_pdf` and `generate_csv` with GT InnoX LLP vendor identity, TDR percentages, lines of code, and USD financial liabilities. Added API endpoints `GET /api/v1/reports/json/{assessment_id}`, `GET /api/v1/reports/portfolio/pdf`, `GET /api/v1/reports/portfolio/csv`, and `GET /api/v1/reports/portfolio/json` with organization-level tenant isolation. Added 3 automated test suites covering single-project PDF/CSV/JSON, portfolio PDF/CSV/JSON, and multi-tenant isolation.
+- **Tests Executed:** `pytest backend/tests/test_report_exports.py`.
+- **Test Results:** 3 passed, 0 failed.
+- **Documentation Updated:** `docs/V3_50_COMMIT_PROGRESS.md`.
+- **Commit Hash:** `6f44448`.
+- **Remaining Issues:** Proceed to Commit 39 (Implement email and in-app notifications).
 
 
 
