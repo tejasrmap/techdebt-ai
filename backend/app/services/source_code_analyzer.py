@@ -128,6 +128,18 @@ class SourceCodeAnalyzer:
             comp, php_findings = self._analyze_php(file_path, content, lines)
             complexity = max(complexity, comp)
             raw_findings.extend(php_findings)
+        elif lang == "go":
+            comp, go_findings = self._analyze_go(file_path, content, lines)
+            complexity = max(complexity, comp)
+            raw_findings.extend(go_findings)
+        elif lang == "csharp":
+            comp, cs_findings = self._analyze_csharp(file_path, content, lines)
+            complexity = max(complexity, comp)
+            raw_findings.extend(cs_findings)
+        elif lang in ("c", "cpp"):
+            comp, cpp_findings = self._analyze_c_cpp(file_path, content, lines, lang)
+            complexity = max(complexity, comp)
+            raw_findings.extend(cpp_findings)
         else:
             comp, gen_findings = self._analyze_generic_code(file_path, content, lines, lang)
             complexity = max(complexity, comp)
@@ -212,6 +224,18 @@ class SourceCodeAnalyzer:
                 comp, php_findings = self._analyze_php(rel_path, content, lines)
                 complexity = max(complexity, comp)
                 file_findings.extend(php_findings)
+            elif lang == "go":
+                comp, go_findings = self._analyze_go(rel_path, content, lines)
+                complexity = max(complexity, comp)
+                file_findings.extend(go_findings)
+            elif lang == "csharp":
+                comp, cs_findings = self._analyze_csharp(rel_path, content, lines)
+                complexity = max(complexity, comp)
+                file_findings.extend(cs_findings)
+            elif lang in ("c", "cpp"):
+                comp, cpp_findings = self._analyze_c_cpp(rel_path, content, lines, lang)
+                complexity = max(complexity, comp)
+                file_findings.extend(cpp_findings)
             else:
                 comp, generic_findings = self._analyze_generic_code(rel_path, content, lines, lang)
                 complexity = max(complexity, comp)
@@ -1166,6 +1190,400 @@ class SourceCodeAnalyzer:
                 "technical_evidence": f"Line {deep_nesting_line}: nesting level {max_nesting}",
                 "why_it_matters": "Deep nesting makes PHP code difficult to follow and maintain.",
                 "recommended_remediation": "Apply early return statements or extract logic into helper methods.",
+                "estimated_remediation_hours": 1.0,
+                "is_auto_verifiable": True
+            })
+
+        complexity_score = max(1, min(50, branch_count // 2))
+        return complexity_score, findings
+
+    # =========================================================================
+    # Go Source Analysis
+    # =========================================================================
+
+    def _analyze_go(self, rel_path: str, content: str, lines: List[str]) -> Tuple[int, List[Dict[str, Any]]]:
+        findings: List[Dict[str, Any]] = []
+        loc = len(lines)
+        if loc > 600:
+            findings.append({
+                "file_path": rel_path,
+                "line_start": 1,
+                "line_end": loc,
+                "rule_id": "FILE_EXCESSIVE_LENGTH",
+                "category": "maintainability",
+                "severity": "Medium",
+                "confidence": "High",
+                "title": f"Excessive Go file length ({loc} lines)",
+                "explanation": f"Go source file spans {loc} lines (recommended maximum: 600 lines).",
+                "technical_evidence": f"Total LOC: {loc}",
+                "why_it_matters": "Large Go packages violate idiom of small, focused source files.",
+                "recommended_remediation": "Decompose into smaller source files within the package.",
+                "estimated_remediation_hours": round(loc / 250, 1),
+                "is_auto_verifiable": True
+            })
+
+        max_nesting = 0
+        current_nesting = 0
+        deep_nesting_line = 0
+        branch_count = 1
+        branch_keywords = {"if", "for", "select", "switch", "case", "&&", "||"}
+
+        for idx, line in enumerate(lines, start=1):
+            trimmed = line.strip()
+            if trimmed.startswith(("//", "/*", "*")):
+                continue
+
+            open_b = line.count("{") - line.count("}")
+            current_nesting = max(0, current_nesting + open_b)
+            if current_nesting > max_nesting:
+                max_nesting = current_nesting
+                deep_nesting_line = idx
+
+            for kw in branch_keywords:
+                if re.search(r'\b' + re.escape(kw) + r'\b', trimmed):
+                    branch_count += 1
+
+            # 1. Ignored error return
+            if re.search(r'_\s*,\s*_\s*:=', trimmed) or re.search(r'if\s+err\s*!=\s*nil\s*\{\s*\}', trimmed):
+                findings.append({
+                    "file_path": rel_path,
+                    "line_start": idx,
+                    "line_end": idx,
+                    "rule_id": "GO_UNHANDLED_ERROR",
+                    "category": "reliability",
+                    "severity": "High",
+                    "confidence": "High",
+                    "title": "Unhandled error or blank identifier used for error return in Go",
+                    "explanation": "Ignoring error returns with blank identifiers or empty 'if err != nil {}' causes silent failures.",
+                    "technical_evidence": f"Line {idx}: {trimmed[:80]}",
+                    "why_it_matters": "Go philosophy requires explicit error handling; discarding errors produces cascading runtime panics.",
+                    "recommended_remediation": "Check and return the error or wrap with fmt.Errorf().",
+                    "estimated_remediation_hours": 0.5,
+                    "is_auto_verifiable": True
+                })
+
+            # 2. Uncontrolled panic in library code
+            if re.search(r'\bpanic\s*\(', trimmed) and not rel_path.endswith("_test.go"):
+                findings.append({
+                    "file_path": rel_path,
+                    "line_start": idx,
+                    "line_end": idx,
+                    "rule_id": "GO_UNCONTROLLED_PANIC",
+                    "category": "reliability",
+                    "severity": "Medium",
+                    "confidence": "High",
+                    "title": "Direct panic() invocation in production code",
+                    "explanation": "Calling panic() terminates goroutine execution abruptly instead of returning error.",
+                    "technical_evidence": f"Line {idx}: {trimmed[:80]}",
+                    "why_it_matters": "Panics in libraries crash calling services unless caught by recover().",
+                    "recommended_remediation": "Return an error value rather than panicking.",
+                    "estimated_remediation_hours": 0.5,
+                    "is_auto_verifiable": True
+                })
+
+            # 3. Unbounded goroutine
+            if re.search(r'\bgo\s+func\s*\(', trimmed) and "ctx" not in trimmed and "done" not in trimmed:
+                findings.append({
+                    "file_path": rel_path,
+                    "line_start": idx,
+                    "line_end": idx,
+                    "rule_id": "GO_UNBOUNDED_GOROUTINE",
+                    "category": "reliability",
+                    "severity": "Medium",
+                    "confidence": "Medium",
+                    "title": "Anonymous goroutine launched without context cancellation or lifecycle management",
+                    "explanation": "Launching goroutines without context or quit channels can leak memory and goroutines indefinitely.",
+                    "technical_evidence": f"Line {idx}: {trimmed[:80]}",
+                    "why_it_matters": "Goroutine leaks consume OS threads and memory, eventually leading to process OOM.",
+                    "recommended_remediation": "Pass a context.Context or use errgroup.Group for lifecycle control.",
+                    "estimated_remediation_hours": 1.0,
+                    "is_auto_verifiable": True
+                })
+
+            # 4. SQL concatenation in Go
+            if (re.search(r'\b(?:Query|Exec|QueryRow)\s*\(\s*".*"\s*\+', trimmed) or
+                re.search(r'fmt\.Sprintf\s*\(\s*".*\b(?:SELECT|INSERT|UPDATE|DELETE)\b', trimmed, re.IGNORECASE)):
+                findings.append({
+                    "file_path": rel_path,
+                    "line_start": idx,
+                    "line_end": idx,
+                    "rule_id": "GO_SQL_INJECTION_CONCAT",
+                    "category": "security",
+                    "severity": "Critical",
+                    "confidence": "High",
+                    "title": "SQL query built via string formatting or concatenation in Go",
+                    "explanation": "Using string formatting (fmt.Sprintf) or '+' to construct SQL statements creates SQL injection vulnerabilities.",
+                    "technical_evidence": f"Line {idx}: {trimmed[:80]}",
+                    "why_it_matters": "Enables attackers to manipulate SQL queries and exfiltrate database contents.",
+                    "recommended_remediation": "Use parameterized queries ($1, ? placeholders) in database/sql calls.",
+                    "estimated_remediation_hours": 1.5,
+                    "is_auto_verifiable": True
+                })
+
+        if max_nesting >= 5:
+            findings.append({
+                "file_path": rel_path,
+                "line_start": deep_nesting_line,
+                "line_end": deep_nesting_line,
+                "rule_id": "GO_DEEP_NESTING",
+                "category": "complexity",
+                "severity": "High" if max_nesting >= 7 else "Medium",
+                "confidence": "High",
+                "title": f"Excessive block nesting depth ({max_nesting} levels)",
+                "explanation": f"Go code reaches nesting depth of {max_nesting} levels (threshold: 4 levels).",
+                "technical_evidence": f"Line {deep_nesting_line}: nesting level {max_nesting}",
+                "why_it_matters": "Idiomatic Go favors early returns ('line of sight') to keep nesting shallow.",
+                "recommended_remediation": "Apply early error returns to eliminate deep nesting.",
+                "estimated_remediation_hours": 1.0,
+                "is_auto_verifiable": True
+            })
+
+        complexity_score = max(1, min(50, branch_count // 2))
+        return complexity_score, findings
+
+    # =========================================================================
+    # C# (.NET) Source Analysis
+    # =========================================================================
+
+    def _analyze_csharp(self, rel_path: str, content: str, lines: List[str]) -> Tuple[int, List[Dict[str, Any]]]:
+        findings: List[Dict[str, Any]] = []
+        loc = len(lines)
+        if loc > 600:
+            findings.append({
+                "file_path": rel_path,
+                "line_start": 1,
+                "line_end": loc,
+                "rule_id": "FILE_EXCESSIVE_LENGTH",
+                "category": "maintainability",
+                "severity": "Medium",
+                "confidence": "High",
+                "title": f"Excessive C# file length ({loc} lines)",
+                "explanation": f"C# source file spans {loc} lines (recommended maximum: 600 lines).",
+                "technical_evidence": f"Total LOC: {loc}",
+                "why_it_matters": "Large C# classes violate single-responsibility principle.",
+                "recommended_remediation": "Extract responsibilities into cohesive services or interfaces.",
+                "estimated_remediation_hours": round(loc / 250, 1),
+                "is_auto_verifiable": True
+            })
+
+        max_nesting = 0
+        current_nesting = 0
+        deep_nesting_line = 0
+        branch_count = 1
+        branch_keywords = {"if", "else if", "case", "for", "foreach", "while", "catch", "&&", "||", "switch"}
+
+        for idx, line in enumerate(lines, start=1):
+            trimmed = line.strip()
+            if trimmed.startswith(("//", "/*", "*")):
+                continue
+
+            open_b = line.count("{") - line.count("}")
+            current_nesting = max(0, current_nesting + open_b)
+            if current_nesting > max_nesting:
+                max_nesting = current_nesting
+                deep_nesting_line = idx
+
+            for kw in branch_keywords:
+                if re.search(r'\b' + re.escape(kw) + r'\b', trimmed):
+                    branch_count += 1
+
+            # 1. Empty catch block
+            if re.search(r'catch\s*(?:\([^)]+\))?\s*\{\s*\}', trimmed):
+                findings.append({
+                    "file_path": rel_path,
+                    "line_start": idx,
+                    "line_end": idx,
+                    "rule_id": "CSHARP_EMPTY_CATCH_BLOCK",
+                    "category": "reliability",
+                    "severity": "High",
+                    "confidence": "High",
+                    "title": "Empty catch block silently swallows C# exception",
+                    "explanation": "Catch block with an empty body conceals thrown exceptions.",
+                    "technical_evidence": f"Line {idx}: {trimmed[:80]}",
+                    "why_it_matters": "Conceals operational failures and corrupts application state.",
+                    "recommended_remediation": "Log the exception via ILogger or rethrow.",
+                    "estimated_remediation_hours": 0.5,
+                    "is_auto_verifiable": True
+                })
+
+            # 2. Insecure BinaryFormatter deserialization
+            if re.search(r'\bBinaryFormatter\b', trimmed):
+                findings.append({
+                    "file_path": rel_path,
+                    "line_start": idx,
+                    "line_end": idx,
+                    "rule_id": "CSHARP_INSECURE_BINARY_FORMATTER",
+                    "category": "security",
+                    "severity": "Critical",
+                    "confidence": "High",
+                    "title": "Insecure deserialization with deprecated BinaryFormatter",
+                    "explanation": "BinaryFormatter is dangerous and vulnerable to remote code execution attacks.",
+                    "technical_evidence": f"Line {idx}: {trimmed[:80]}",
+                    "why_it_matters": "Microsoft strongly advises against using BinaryFormatter due to unavoidable RCE vulnerabilities.",
+                    "recommended_remediation": "Migrate to System.Text.Json or protobuf-net.",
+                    "estimated_remediation_hours": 2.0,
+                    "is_auto_verifiable": True
+                })
+
+            # 3. SQL string interpolation
+            if re.search(r'\bSqlCommand\s*\(.*\$".*\b(?:SELECT|INSERT|UPDATE|DELETE)\b', trimmed, re.IGNORECASE) or re.search(r'Execute(?:NonQuery|Reader|Scalar)\s*\(.*\$"', trimmed):
+                findings.append({
+                    "file_path": rel_path,
+                    "line_start": idx,
+                    "line_end": idx,
+                    "rule_id": "CSHARP_SQL_INJECTION",
+                    "category": "security",
+                    "severity": "Critical",
+                    "confidence": "High",
+                    "title": "SQL query built via string interpolation ($) in C#",
+                    "explanation": "Using string interpolation inside SqlCommand exposes the database to SQL injection attacks.",
+                    "technical_evidence": f"Line {idx}: {trimmed[:80]}",
+                    "why_it_matters": "Allows unauthenticated users to execute arbitrary SQL commands.",
+                    "recommended_remediation": "Use parameterized queries with SqlParameter or Dapper.",
+                    "estimated_remediation_hours": 1.5,
+                    "is_auto_verifiable": True
+                })
+
+            # 4. Thread.Abort / Suspend
+            if re.search(r'\b[tT]hread\.(?:Abort|Suspend)\s*\(', trimmed):
+                findings.append({
+                    "file_path": rel_path,
+                    "line_start": idx,
+                    "line_end": idx,
+                    "rule_id": "CSHARP_DANGEROUS_THREAD_ABORT",
+                    "category": "reliability",
+                    "severity": "High",
+                    "confidence": "High",
+                    "title": "Dangerous Thread.Abort() or Thread.Suspend() invocation",
+                    "explanation": "Thread.Abort forcefully kills a thread, corrupting shared state and leaking locks.",
+                    "technical_evidence": f"Line {idx}: {trimmed[:80]}",
+                    "why_it_matters": "Deprecated in modern .NET; produces ThreadAbortException and deadlocks.",
+                    "recommended_remediation": "Use cooperative cancellation tokens (CancellationToken).",
+                    "estimated_remediation_hours": 1.0,
+                    "is_auto_verifiable": True
+                })
+
+        if max_nesting >= 5:
+            findings.append({
+                "file_path": rel_path,
+                "line_start": deep_nesting_line,
+                "line_end": deep_nesting_line,
+                "rule_id": "CSHARP_DEEP_NESTING",
+                "category": "complexity",
+                "severity": "High" if max_nesting >= 7 else "Medium",
+                "confidence": "High",
+                "title": f"Excessive block nesting depth ({max_nesting} levels)",
+                "explanation": f"C# method reaches nesting depth of {max_nesting} levels (threshold: 4 levels).",
+                "technical_evidence": f"Line {deep_nesting_line}: nesting level {max_nesting}",
+                "why_it_matters": "Deep nesting makes logic hard to understand and test.",
+                "recommended_remediation": "Use early returns or local functions to flatten execution paths.",
+                "estimated_remediation_hours": 1.0,
+                "is_auto_verifiable": True
+            })
+
+        complexity_score = max(1, min(50, branch_count // 2))
+        return complexity_score, findings
+
+    # =========================================================================
+    # C and C++ Source Analysis
+    # =========================================================================
+
+    def _analyze_c_cpp(self, rel_path: str, content: str, lines: List[str], lang: str) -> Tuple[int, List[Dict[str, Any]]]:
+        findings: List[Dict[str, Any]] = []
+        loc = len(lines)
+        if loc > 600:
+            findings.append({
+                "file_path": rel_path,
+                "line_start": 1,
+                "line_end": loc,
+                "rule_id": "FILE_EXCESSIVE_LENGTH",
+                "category": "maintainability",
+                "severity": "Medium",
+                "confidence": "High",
+                "title": f"Excessive C/C++ file length ({loc} lines)",
+                "explanation": f"C/C++ file spans {loc} lines (recommended maximum: 600 lines).",
+                "technical_evidence": f"Total LOC: {loc}",
+                "why_it_matters": "Monolithic translation units degrade compile times and readability.",
+                "recommended_remediation": "Split into cohesive compilation units.",
+                "estimated_remediation_hours": round(loc / 250, 1),
+                "is_auto_verifiable": True
+            })
+
+        max_nesting = 0
+        current_nesting = 0
+        deep_nesting_line = 0
+        branch_count = 1
+        branch_keywords = {"if", "else if", "case", "for", "while", "catch", "&&", "||", "switch"}
+
+        for idx, line in enumerate(lines, start=1):
+            trimmed = line.strip()
+            if trimmed.startswith(("//", "/*", "*")):
+                continue
+
+            open_b = line.count("{") - line.count("}")
+            current_nesting = max(0, current_nesting + open_b)
+            if current_nesting > max_nesting:
+                max_nesting = current_nesting
+                deep_nesting_line = idx
+
+            for kw in branch_keywords:
+                if re.search(r'\b' + re.escape(kw) + r'\b', trimmed):
+                    branch_count += 1
+
+            # 1. Unsafe buffer functions
+            unsafe_match = re.search(r'\b(strcpy|strcat|gets|sprintf|vsprintf)\s*\(', trimmed)
+            if unsafe_match:
+                fn_name = unsafe_match.group(1)
+                findings.append({
+                    "file_path": rel_path,
+                    "line_start": idx,
+                    "line_end": idx,
+                    "rule_id": "CPP_UNSAFE_BUFFER_FUNCTION",
+                    "category": "security",
+                    "severity": "Critical",
+                    "confidence": "High",
+                    "title": f"Dangerous buffer manipulation function '{fn_name}()' (Buffer overflow risk)",
+                    "explanation": f"Function '{fn_name}()' does not perform boundary checking on buffer destination.",
+                    "technical_evidence": f"Line {idx}: {trimmed[:80]}",
+                    "why_it_matters": "Buffer overflows in C/C++ allow remote code execution and memory corruption.",
+                    "recommended_remediation": f"Replace with bounded alternatives (e.g. strncpy, snprintf, or std::string).",
+                    "estimated_remediation_hours": 1.5,
+                    "is_auto_verifiable": True
+                })
+
+            # 2. Format string vulnerability
+            if re.search(r'\b(?:printf|fprintf|syslog)\s*\(\s*[a-zA-Z0-9_]+\s*\)', trimmed):
+                findings.append({
+                    "file_path": rel_path,
+                    "line_start": idx,
+                    "line_end": idx,
+                    "rule_id": "CPP_FORMAT_STRING_VULN",
+                    "category": "security",
+                    "severity": "Critical",
+                    "confidence": "High",
+                    "title": "Potential format string vulnerability",
+                    "explanation": "Passing variable as format string argument without '%s' specifier allows attackers to read or write arbitrary stack memory.",
+                    "technical_evidence": f"Line {idx}: {trimmed[:80]}",
+                    "why_it_matters": "Attackers can use %n and %x specifiers to execute arbitrary code or leak memory.",
+                    "recommended_remediation": "Use literal format string, e.g. printf(\"%s\", buf).",
+                    "estimated_remediation_hours": 0.5,
+                    "is_auto_verifiable": True
+                })
+
+        if max_nesting >= 5:
+            findings.append({
+                "file_path": rel_path,
+                "line_start": deep_nesting_line,
+                "line_end": deep_nesting_line,
+                "rule_id": "CPP_DEEP_NESTING",
+                "category": "complexity",
+                "severity": "High" if max_nesting >= 7 else "Medium",
+                "confidence": "High",
+                "title": f"Excessive block nesting depth ({max_nesting} levels)",
+                "explanation": f"C/C++ block reaches nesting depth of {max_nesting} levels (threshold: 4 levels).",
+                "technical_evidence": f"Line {deep_nesting_line}: nesting level {max_nesting}",
+                "why_it_matters": "Excessive nesting obscures control flow and complicates verification.",
+                "recommended_remediation": "Refactor complex conditional branches into helper functions.",
                 "estimated_remediation_hours": 1.0,
                 "is_auto_verifiable": True
             })
