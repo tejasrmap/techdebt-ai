@@ -533,8 +533,24 @@ def get_project_architecture_review(
         .first()
     )
     raw = latest_asmt.raw_output if latest_asmt and latest_asmt.raw_output else {}
-    files = raw.get("analyzed_files", ["src/api/routes.py", "src/services/app.py", "src/models/user.py"])
+    files = raw.get("analyzed_files")
+    if not files and latest_asmt and hasattr(latest_asmt, "code_findings") and latest_asmt.code_findings:
+        files = list({cf.file_path for cf in latest_asmt.code_findings if cf.file_path})
+    files = files or []
+
     code_findings = raw.get("code_findings", [])
+    if not code_findings and latest_asmt and hasattr(latest_asmt, "code_findings") and latest_asmt.code_findings:
+        code_findings = [
+            {
+                "id": cf.id,
+                "file_path": cf.file_path,
+                "rule_id": cf.rule_id,
+                "title": cf.title,
+                "severity": cf.severity,
+                "category": cf.category
+            }
+            for cf in latest_asmt.code_findings
+        ]
     code_metrics = raw.get("code_metrics", {})
 
     review = ArchitectureReviewEngine.analyze_architecture(
