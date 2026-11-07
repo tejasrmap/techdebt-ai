@@ -844,7 +844,9 @@ async def execute_project_review(
                 for s in pending_score_records
             ] if pending_score_records else None,
             risk_findings=all_risks,
-            code_findings=raw_code_findings
+            code_findings=raw_code_findings,
+            documentation_coverage_pct=code_metrics.get("documentation_coverage_pct") if code_metrics else None,
+            measured_test_coverage_pct=code_metrics.get("coverage_percentage") if code_metrics else None
         )
 
         avg_score = debt_calc["overall_health_score"]
@@ -892,6 +894,9 @@ async def execute_project_review(
                     "code_metrics": code_metrics,
                     "code_findings": raw_code_findings,
                     "dimensional_scores": debt_calc["dimensional_scores"],
+                    "remediation_hours_range": debt_calc.get("remediation_hours_range"),
+                    "confidence_level": debt_calc.get("confidence_level"),
+                    "evidence_coverage_pct": debt_calc.get("evidence_coverage_pct"),
                     "missing_signals": debt_calc.get("missing_signals", []),
                     "coverage_summary": debt_calc.get("coverage_summary", {}),
                 },

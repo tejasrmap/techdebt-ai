@@ -1,14 +1,23 @@
+"""
+TechDebt AI v3.1.0 — Commercial 10-Dimension Technical Debt & Architecture Scoring Engine.
+
+Computes transparent, reproducible, evidence-grounded technical debt scores, Technical Debt Ratio (TDR),
+confidence ratings, and deduplicated remediation effort ranges (Low, Expected, High).
+"""
+
 import math
 from typing import Dict, Any, List, Optional
 
+
 class CommercialDebtScoringEngine:
     """
-    TechDebt AI v2.0.0 — Commercial 10-Dimension Technical Debt & Architecture Scoring Engine.
+    TechDebt AI v3.1.0 — Commercial 10-Dimension Technical Debt & Architecture Scoring Engine.
     Computes transparent, reproducible, evidence-grounded technical debt scores, Technical Debt Ratio (TDR),
-    and remediation hour estimates using deterministic mathematical formulations.
+    confidence ratings, and deduplicated remediation effort ranges.
     """
 
-    SCORING_VERSION = "v2.0.0"
+    SCORING_VERSION = "v3.1.0"
+    DEFAULT_HOURLY_RATE = 120.0
 
     DIMENSION_WEIGHTS = {
         "code_maintainability": 0.15,
@@ -31,16 +40,28 @@ class CommercialDebtScoringEngine:
         "Info": 0.2
     }
 
+    # Low / High confidence variance bounds
+    EFFORT_VARIANCE_MAP = {
+        "Critical": (4.0, 10.0),
+        "High": (2.0, 5.0),
+        "Medium": (1.0, 2.5),
+        "Low": (0.25, 1.0),
+        "Info": (0.1, 0.5)
+    }
+
     @classmethod
     def calculate_project_debt(
         cls,
         code_metrics: Optional[Dict[str, Any]] = None,
         tech_scores: Optional[List[Dict[str, Any]]] = None,
         risk_findings: Optional[List[Dict[str, Any]]] = None,
-        code_findings: Optional[List[Dict[str, Any]]] = None
+        code_findings: Optional[List[Dict[str, Any]]] = None,
+        documentation_coverage_pct: Optional[float] = None,
+        measured_test_coverage_pct: Optional[float] = None
     ) -> Dict[str, Any]:
         """
-        Computes composite 10-dimension debt scores, remediation effort, and TDR.
+        Computes composite 10-dimension debt scores, remediation effort ranges, and TDR.
+        Explicitly tracks missing data without converting lack of evidence into false 100% health.
         """
         code_metrics = code_metrics or {}
         tech_scores = tech_scores or []
@@ -53,12 +74,17 @@ class CommercialDebtScoringEngine:
         avg_complexity = code_metrics.get("avg_cyclomatic_complexity", 1.0)
         max_complexity = code_metrics.get("max_cyclomatic_complexity", 1)
         duplication_pct = code_metrics.get("code_duplication_percentage", 0.0)
-        maintainability_index = code_metrics.get("maintainability_index", 85.0)
+        maintainability_index = code_metrics.get("maintainability_index", 80.0)
+
+        missing_signals = []
+        if files_count == 0 and loc == 0:
+            missing_signals.append("static_code_analysis")
+        if not tech_scores:
+            missing_signals.append("dependency_manifests")
 
         # -------------------------------------------------------------
         # 1. Code Maintainability Score (15%)
         # -------------------------------------------------------------
-        # Influenced by Maintainability Index and code duplication
         maint_deduction = (duplication_pct * 1.5)
         if avg_complexity > 10:
             maint_deduction += (avg_complexity - 10) * 1.5
@@ -67,7 +93,6 @@ class CommercialDebtScoringEngine:
         # -------------------------------------------------------------
         # 2. Architecture Quality Score (10%)
         # -------------------------------------------------------------
-        # Penalizes excessive file length and cross-file duplication
         arch_findings = [f for f in code_findings if f.get("category") in ("architecture", "maintainability")]
         arch_penalty = len(arch_findings) * 3.0
         score_architecture = round(max(15.0, min(100.0, 95.0 - arch_penalty)), 1)
@@ -86,7 +111,7 @@ class CommercialDebtScoringEngine:
             )
             score_dependency = round(max(10.0, min(100.0, avg_dep)), 1)
         else:
-            score_dependency = 85.0
+            score_dependency = 50.0 if "dependency_manifests" in missing_signals else 85.0
 
         # -------------------------------------------------------------
         # 4. Security Posture Score (15%)
@@ -96,7 +121,6 @@ class CommercialDebtScoringEngine:
         high_sec = sum(1 for f in sec_findings if f.get("severity") == "High")
         med_sec = sum(1 for f in sec_findings if f.get("severity") == "Medium")
         
-        # Risk findings from dependencies
         dep_critical = sum(1 for r in risk_findings if r.get("severity") == "Critical")
         dep_high = sum(1 for r in risk_findings if r.get("severity") == "High")
 
@@ -106,21 +130,27 @@ class CommercialDebtScoringEngine:
         # -------------------------------------------------------------
         # 5. Test Quality Score (10%)
         # -------------------------------------------------------------
-        if files_count > 0:
+        # Incorporate measured coverage when available
+        test_cov = measured_test_coverage_pct if measured_test_coverage_pct is not None else code_metrics.get("measured_test_coverage_pct")
+        if test_cov is not None:
+            score_test = round(max(10.0, min(100.0, float(test_cov))), 1)
+        elif files_count > 0:
             test_ratio = test_files / max(1, files_count)
-            # Ideal test ratio is 0.25 (1 test file per 4 implementation files)
             score_test = round(max(20.0, min(100.0, test_ratio * 400.0)), 1)
         else:
-            score_test = 70.0
+            score_test = 50.0
 
         # -------------------------------------------------------------
         # 6. Documentation Quality Score (5%)
         # -------------------------------------------------------------
-        if tech_scores:
+        doc_cov = documentation_coverage_pct if documentation_coverage_pct is not None else code_metrics.get("documentation_coverage_pct")
+        if doc_cov is not None:
+            score_docs = round(max(10.0, min(100.0, float(doc_cov))), 1)
+        elif tech_scores:
             doc_scores = [s.get("documentation_quality", 85.0) for s in tech_scores]
             score_docs = round(sum(doc_scores) / len(doc_scores), 1)
         else:
-            score_docs = 85.0
+            score_docs = 50.0 if "static_code_analysis" in missing_signals else 85.0
 
         # -------------------------------------------------------------
         # 7. Reliability & Error Resilience Score (10%)
@@ -132,8 +162,10 @@ class CommercialDebtScoringEngine:
         # -------------------------------------------------------------
         # 8. Performance Static Indicators (5%)
         # -------------------------------------------------------------
-        deep_nesting_count = sum(1 for f in code_findings if f.get("rule_id") == "EXCESSIVE_NESTING_DEPTH")
-        score_performance = round(max(20.0, min(100.0, 95.0 - (deep_nesting_count * 8.0))), 1)
+        perf_findings = [f for f in code_findings if f.get("category") == "performance"]
+        perf_penalty = len(perf_findings) * 6.0
+        deep_nesting_count = sum(1 for f in code_findings if f.get("rule_id") in ("EXCESSIVE_NESTING_DEPTH", "PY_DEEP_NESTING", "JS_DEEP_NESTING"))
+        score_performance = round(max(20.0, min(100.0, 95.0 - (deep_nesting_count * 5.0) - perf_penalty)), 1)
 
         # -------------------------------------------------------------
         # 9. Development & Cognitive Complexity Score (10%)
@@ -151,11 +183,8 @@ class CommercialDebtScoringEngine:
             upg_scores = [s.get("upgrade_complexity", 85.0) for s in tech_scores]
             score_upgrade = round(sum(upg_scores) / len(upg_scores), 1)
         else:
-            score_upgrade = 85.0
+            score_upgrade = 50.0 if "dependency_manifests" in missing_signals else 85.0
 
-        # -------------------------------------------------------------
-        # Overall Weighted Score Calculation
-        # -------------------------------------------------------------
         dimensional_scores = {
             "code_maintainability": score_maintainability,
             "architecture_quality": score_architecture,
@@ -184,34 +213,70 @@ class CommercialDebtScoringEngine:
         else:
             classification = "Critical Debt"
 
-        # Remediation Effort & Technical Debt Ratio (TDR)
-        # Total remediation hours calculated from finding severities
-        total_remediation_hours = sum(
-            f.get("estimated_remediation_hours", cls.SEVERITY_HOURS_MAP.get(f.get("severity", "Medium"), 1.5))
-            for f in code_findings
-        )
+        # Evidence-grounded Confidence Calculation (never 100% on missing evidence)
+        evidence_signals = 0
+        total_signals = 4
+        if files_count >= 1:
+            evidence_signals += 1
+        if test_cov is not None or test_files > 0:
+            evidence_signals += 1
+        if tech_scores:
+            evidence_signals += 1
+        if doc_cov is not None or "documentation_quality" not in missing_signals:
+            evidence_signals += 1
+
+        coverage_pct = round((evidence_signals / total_signals) * 100.0, 1)
+        if coverage_pct >= 75.0 and files_count >= 3:
+            confidence = "High"
+        elif coverage_pct >= 50.0:
+            confidence = "Medium"
+        else:
+            confidence = "Low"
+
+        # Deduplicated Remediation Effort Ranges (Low, Expected, High)
+        remediation_hours_expected = 0.0
+        remediation_hours_low = 0.0
+        remediation_hours_high = 0.0
+
+        for f in code_findings:
+            sev = f.get("severity", "Medium")
+            exp = float(f.get("estimated_remediation_hours") or cls.SEVERITY_HOURS_MAP.get(sev, 1.5))
+            lo, hi = cls.EFFORT_VARIANCE_MAP.get(sev, (exp * 0.75, exp * 1.5))
+            remediation_hours_expected += exp
+            remediation_hours_low += lo
+            remediation_hours_high += hi
+
         for r in risk_findings:
-            total_remediation_hours += cls.SEVERITY_HOURS_MAP.get(r.get("severity", "Medium"), 1.5)
+            sev = r.get("severity", "Medium")
+            exp = float(r.get("estimated_remediation_hours") or cls.SEVERITY_HOURS_MAP.get(sev, 1.5))
+            lo, hi = cls.EFFORT_VARIANCE_MAP.get(sev, (exp * 0.75, exp * 1.5))
+            remediation_hours_expected += exp
+            remediation_hours_low += lo
+            remediation_hours_high += hi
 
-        total_remediation_hours = round(total_remediation_hours, 1)
+        remediation_hours_expected = round(remediation_hours_expected, 1)
+        remediation_hours_low = round(remediation_hours_low, 1)
+        remediation_hours_high = round(remediation_hours_high, 1)
 
-        # Estimated development effort: standard industry average ~ 25 lines of code per dev hour
+        # Technical Debt Ratio (TDR): Remediation Cost / Replacement Cost
         effective_loc = max(loc, len(tech_scores) * 200, 100)
         development_hours = max(20.0, effective_loc / 25.0)
-        tdr_pct = round(min(100.0, (total_remediation_hours / development_hours) * 100.0), 1)
-
-        # Confidence level
-        confidence = "High"
-        if files_count < 3 and len(tech_scores) < 3:
-            confidence = "Medium"
+        tdr_pct = round(min(100.0, (remediation_hours_expected / development_hours) * 100.0), 1)
 
         return {
             "scoring_version": cls.SCORING_VERSION,
             "overall_health_score": overall_score,
             "risk_classification": classification,
             "confidence_level": confidence,
+            "evidence_coverage_pct": coverage_pct,
+            "missing_signals": missing_signals,
             "technical_debt_ratio": tdr_pct,
-            "estimated_remediation_hours": total_remediation_hours,
+            "estimated_remediation_hours": remediation_hours_expected,
+            "remediation_hours_range": {
+                "low": remediation_hours_low,
+                "expected": remediation_hours_expected,
+                "high": remediation_hours_high
+            },
             "lines_of_code": loc,
             "files_analyzed": files_count,
             "dimensional_scores": dimensional_scores
@@ -224,23 +289,31 @@ class CommercialDebtScoringEngine:
         tech_scores: Optional[List[Dict[str, Any]]] = None,
         risk_findings: Optional[List[Dict[str, Any]]] = None,
         code_findings: Optional[List[Dict[str, Any]]] = None,
-        hourly_rate: float = 100.0
+        hourly_rate: float = DEFAULT_HOURLY_RATE,
+        documentation_coverage_pct: Optional[float] = None,
+        measured_test_coverage_pct: Optional[float] = None
     ) -> Dict[str, Any]:
         """
         Generates an evidence-grounded, explainable technical debt breakdown.
         Rolls up 10 detailed dimensions into 5 core enterprise debt pillars,
-        attributing specific positive contributors, penalty factors, remediation actions,
-        and financial liability (hours * hourly_rate).
+        deduplicating hours/costs across pillars and providing explicit positive/negative drivers.
         """
-        base_result = cls.calculate_project_debt(code_metrics, tech_scores, risk_findings, code_findings)
+        base_result = cls.calculate_project_debt(
+            code_metrics=code_metrics,
+            tech_scores=tech_scores,
+            risk_findings=risk_findings,
+            code_findings=code_findings,
+            documentation_coverage_pct=documentation_coverage_pct,
+            measured_test_coverage_pct=measured_test_coverage_pct
+        )
         dim_scores = base_result["dimensional_scores"]
         code_findings = code_findings or []
         risk_findings = risk_findings or []
         code_metrics = code_metrics or {}
         tech_scores = tech_scores or []
 
-        # Categorize findings into the 5 Pillars
-        # 1. Architecture & Design Debt (architecture_quality + development_complexity)
+        # Categorize findings into 5 Deduplicated Enterprise Pillars
+        # 1. Architecture & Design Debt
         arch_findings = [f for f in code_findings if f.get("category") in ("architecture", "complexity")]
         arch_hours = sum(cls.SEVERITY_HOURS_MAP.get(f.get("severity", "Medium"), 1.5) for f in arch_findings)
         arch_score = round((dim_scores["architecture_quality"] * 0.5) + (dim_scores["development_complexity"] * 0.5), 1)
@@ -255,7 +328,7 @@ class CommercialDebtScoringEngine:
         else:
             arch_pen.append(f"{len(arch_findings)} architectural/complexity findings require refactoring.")
 
-        # 2. Security & Compliance Debt (security_posture)
+        # 2. Security & Compliance Debt
         sec_findings = [f for f in code_findings if f.get("category") == "security"]
         sec_hours = sum(cls.SEVERITY_HOURS_MAP.get(f.get("severity", "Medium"), 1.5) for f in sec_findings)
         for r in risk_findings:
@@ -272,7 +345,7 @@ class CommercialDebtScoringEngine:
         if high_sec > 0:
             sec_pen.append(f"{high_sec} high severity security finding(s) detected (-{high_sec * 12.0} penalty).")
 
-        # 3. Code Quality & Maintainability Debt (code_maintainability + documentation_quality + performance_indicators)
+        # 3. Code Quality & Maintainability Debt
         maint_findings = [f for f in code_findings if f.get("category") in ("maintainability", "quality", "performance")]
         maint_hours = sum(cls.SEVERITY_HOURS_MAP.get(f.get("severity", "Medium"), 1.5) for f in maint_findings)
         maint_score = round(
@@ -288,14 +361,14 @@ class CommercialDebtScoringEngine:
             maint_pos.append(f"Clean code DRY hygiene with only {duplication}% duplicated code blocks.")
         else:
             maint_pen.append(f"Elevated code duplication of {duplication}% across repository.")
-        mi = code_metrics.get("maintainability_index", 85.0)
+        mi = code_metrics.get("maintainability_index", 80.0)
         if mi >= 75.0:
             maint_pos.append(f"High Maintainability Index ({mi}/100).")
         else:
             maint_pen.append(f"Suboptimal Maintainability Index ({mi}/100) indicates high cognitive overhead.")
 
-        # 4. Dependency & Modernization Debt (dependency_health + upgrade_risk)
-        dep_hours = len(risk_findings) * 1.5
+        # 4. Dependency & Modernization Debt (pure dependency hours, deduplicated from security CVEs)
+        dep_hours = round(len(tech_scores) * 0.5, 1)
         dep_score = round((dim_scores["dependency_health"] * 0.75) + (dim_scores["upgrade_risk"] * 0.25), 1)
         dep_pos = []
         dep_pen = []
@@ -306,9 +379,9 @@ class CommercialDebtScoringEngine:
             else:
                 dep_pen.append(f"Average dependency version currency is low ({round(avg_curr, 1)}/100).")
         else:
-            dep_pos.append("Default baseline dependency health maintained.")
+            dep_pos.append("Baseline dependency configuration evaluated.")
 
-        # 5. Test & Reliability Debt (test_quality + reliability)
+        # 5. Testing & Reliability Debt
         test_rel_findings = [f for f in code_findings if f.get("category") == "reliability"]
         test_rel_hours = sum(cls.SEVERITY_HOURS_MAP.get(f.get("severity", "Medium"), 1.5) for f in test_rel_findings)
         test_score = round((dim_scores["test_quality"] * 0.5) + (dim_scores["reliability"] * 0.5), 1)
@@ -317,7 +390,7 @@ class CommercialDebtScoringEngine:
         test_files = code_metrics.get("test_files_count", 0)
         total_files = code_metrics.get("files_analyzed", 0)
         if total_files > 0 and (test_files / total_files) >= 0.20:
-            test_pos.append(f"Strong automated test coverage presence ({test_files} test files for {total_files} modules).")
+            test_pos.append(f"Strong automated test file ratio ({test_files} test files for {total_files} modules).")
         else:
             test_pen.append("Automated test file ratio is below recommended 20% test-to-source ratio.")
 
@@ -370,27 +443,35 @@ class CommercialDebtScoringEngine:
         }
 
         total_financial_cost = round(base_result["estimated_remediation_hours"] * hourly_rate, 2)
+        total_financial_cost_low = round(base_result["remediation_hours_range"]["low"] * hourly_rate, 2)
+        total_financial_cost_high = round(base_result["remediation_hours_range"]["high"] * hourly_rate, 2)
 
-        # Executive summary explanation
         weakest_pillar = min(pillars.items(), key=lambda p: p[1]["score"])
         exec_summary = (
             f"Overall codebase health is scored at {base_result['overall_health_score']}/100 ({base_result['risk_classification']}). "
             f"The primary driver of technical debt is {weakest_pillar[1]['name']} (Score: {weakest_pillar[1]['score']}/100). "
             f"Total remediation liability is estimated at {base_result['estimated_remediation_hours']} engineering hours "
-            f"(${total_financial_cost:,.2f} USD at ${hourly_rate:,.0f}/hr blended rate)."
+            f"(${total_financial_cost:,.2f} USD at ${hourly_rate:,.0f}/hr blended rate; range ${total_financial_cost_low:,.2f} - ${total_financial_cost_high:,.2f})."
         )
 
         return {
-            "scoring_version": "v3.0.0",
+            "scoring_version": cls.SCORING_VERSION,
             "overall_health_score": base_result["overall_health_score"],
             "risk_classification": base_result["risk_classification"],
+            "confidence_level": base_result["confidence_level"],
+            "evidence_coverage_pct": base_result["evidence_coverage_pct"],
+            "missing_signals": base_result["missing_signals"],
             "technical_debt_ratio": base_result["technical_debt_ratio"],
             "total_remediation_hours": base_result["estimated_remediation_hours"],
+            "remediation_hours_range": base_result["remediation_hours_range"],
             "blended_hourly_rate_usd": hourly_rate,
             "total_financial_cost_usd": total_financial_cost,
+            "financial_cost_range_usd": {
+                "low": total_financial_cost_low,
+                "expected": total_financial_cost,
+                "high": total_financial_cost_high
+            },
             "executive_summary": exec_summary,
             "pillars": pillars,
             "detailed_dimensions": dim_scores
         }
-
-
