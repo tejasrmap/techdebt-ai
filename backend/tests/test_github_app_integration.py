@@ -1,4 +1,5 @@
 import os
+import uuid
 import pytest
 from cryptography.hazmat.primitives.asymmetric import rsa
 from cryptography.hazmat.primitives import serialization
@@ -22,13 +23,16 @@ def _generate_test_rsa_key() -> str:
 def test_github_app_config_endpoint():
     """Verify GitHub App public configuration endpoint returns proper status."""
     rate_limiter.reset()
-    reg = client.post("/api/v1/auth/register", json={
-        "email": "gh_tester@githubtest.com",
+    unique_suffix = uuid.uuid4().hex[:8]
+    reg_res = client.post("/api/v1/auth/register", json={
+        "email": f"gh_tester_{unique_suffix}@githubtest.com",
         "password": "SecurePassword123!",
         "full_name": "GH Tester",
-        "organization_name": "GH Test Org"
-    }).json()
-    headers = {"Authorization": f"Bearer {reg['access_token']}"}
+        "organization_name": f"GH Test Org {unique_suffix}"
+    })
+    assert reg_res.status_code == 200
+    token = reg_res.json()["access_token"]
+    headers = {"Authorization": f"Bearer {token}"}
 
     res = client.get("/api/v1/repositories/github/config", headers=headers)
     assert res.status_code == 200

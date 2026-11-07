@@ -380,6 +380,33 @@ class SourceCodeAnalyzer:
 
             lines = content.splitlines()
             loc = len(lines)
+
+            # Minified artifact detection (bypass to prevent false positive complexity explosions)
+            is_minified = (
+                rel_path.endswith((".min.js", ".min.css", ".bundle.js", ".min.mjs"))
+                or (len(lines) > 0 and (sum(len(l) for l in lines) / len(lines) > 300))
+                or any(len(l) > 5000 for l in lines[:10])
+            )
+            if is_minified:
+                excluded_count += 1
+                lc = language_coverage.setdefault(lang, {
+                    "language": lang,
+                    "files_discovered": 0,
+                    "files_analyzed": 0,
+                    "files_skipped": 0,
+                    "analysis_method": "ast" if lang == "python" else "heuristic",
+                    "findings_generated": 0,
+                    "coverage_percentage": 0.0,
+                    "known_limitations": "Full Python AST syntax tree" if lang == "python" else "Lexical pattern matching with comment/string masking (no AST tree-sitter parser)",
+                    "files": 0,
+                    "loc": 0,
+                    "mode": "ast" if lang == "python" else "heuristic",
+                    "parse_failures": 0
+                })
+                lc["files_discovered"] += 1
+                lc["files_skipped"] += 1
+                continue
+
             total_loc += loc
 
             try:
@@ -397,9 +424,26 @@ class SourceCodeAnalyzer:
             doc_documented += meta["doc_documented"]
             doc_total += meta["doc_total"]
 
-            lc = language_coverage.setdefault(lang, {"files": 0, "loc": 0, "mode": meta["mode"], "parse_failures": 0})
+            lc = language_coverage.setdefault(lang, {
+                "language": lang,
+                "files_discovered": 0,
+                "files_analyzed": 0,
+                "files_skipped": 0,
+                "analysis_method": "ast" if lang == "python" else "heuristic",
+                "findings_generated": 0,
+                "coverage_percentage": 0.0,
+                "known_limitations": "Full Python AST syntax tree" if lang == "python" else "Lexical pattern matching with comment/string masking (no AST tree-sitter parser)",
+                "files": 0,
+                "loc": 0,
+                "mode": meta["mode"],
+                "parse_failures": 0
+            })
+            lc["files_discovered"] += 1
+            lc["files_analyzed"] += 1
             lc["files"] += 1
             lc["loc"] += loc
+            lc["findings_generated"] += len(file_findings)
+            lc["coverage_percentage"] = round(lc["files_analyzed"] / max(1, lc["files_discovered"]) * 100.0, 1)
             if meta["parse_failed"]:
                 lc["parse_failures"] += 1
 

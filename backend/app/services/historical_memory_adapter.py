@@ -22,21 +22,50 @@ class HistoricalAssessmentMemoryAdapter:
         self.mode = "postgresql"
         self.is_configured = True
 
-    async def verify_connectivity(self) -> Dict[str, Any]:
+    async def verify_connectivity(self, db: Optional[Session] = None) -> Dict[str, Any]:
         """
-        Verify historical memory integration status.
-        Truthfully reports PostgreSQL as the authoritative multi-tenant storage engine.
+        Verify historical memory integration status by performing an actual live database ping.
+        Truthfully reports authoritative storage engine connectivity instead of static success.
         """
+        is_connected = False
+        db_err_msg = None
+        should_close = False
+
+        target_db = db
+        if target_db is None:
+            try:
+                from app.database import SessionLocal
+                target_db = SessionLocal()
+                should_close = True
+            except Exception as e:
+                db_err_msg = str(e)
+
+        if target_db is not None:
+            try:
+                from sqlalchemy import text
+                target_db.execute(text("SELECT 1"))
+                is_connected = True
+            except Exception as e:
+                db_err_msg = str(e)
+            finally:
+                if should_close:
+                    try:
+                        target_db.close()
+                    except Exception:
+                        pass
+
+        status_str = "postgresql_authoritative" if is_connected else "database_unreachable"
         return {
-            "status": "postgresql_authoritative",
+            "status": status_str,
             "mode": "postgresql",
-            "connected": True,
+            "connected": is_connected,
+            "error": db_err_msg,
             "mcp_architecture": "local_first_mcp_sqlite",
             "message": (
-                "PostgreSQL is active as the authoritative multi-tenant historical assessment memory store. "
-                "Official Memento (runmemento.com) is an MCP stdio tool designed for local developer IDEs; "
-                "historical snapshots and score drift comparisons are authoritatively persisted in PostgreSQL."
-            )
+                "PostgreSQL is verified and operational as the authoritative multi-tenant historical assessment memory store. (Memento MCP architecture supported at runmemento.com)"
+                if is_connected
+                else f"Authoritative historical memory database ping failed: {db_err_msg}"
+            ),
         }
 
     async def record_assessment_snapshot(

@@ -94,7 +94,11 @@ class CommercialDebtScoringEngine:
         # 2. Architecture Quality Score (10%)
         # -------------------------------------------------------------
         arch_findings = [f for f in code_findings if f.get("category") in ("architecture", "maintainability")]
-        arch_penalty = len(arch_findings) * 3.0
+        crit_arch = sum(1 for f in arch_findings if f.get("severity") == "Critical")
+        high_arch = sum(1 for f in arch_findings if f.get("severity") == "High")
+        med_arch = sum(1 for f in arch_findings if f.get("severity") in ("Medium", "Moderate"))
+        low_arch = sum(1 for f in arch_findings if f.get("severity") not in ("Critical", "High", "Medium", "Moderate"))
+        arch_penalty = (crit_arch * 15.0) + (high_arch * 8.0) + (med_arch * 3.0) + (low_arch * 2.0)
         score_architecture = round(max(15.0, min(100.0, 95.0 - arch_penalty)), 1)
 
         # -------------------------------------------------------------

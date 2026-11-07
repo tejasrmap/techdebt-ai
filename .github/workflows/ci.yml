@@ -49,6 +49,8 @@ jobs:
         run: |
           cd backend
           alembic upgrade head
+          alembic downgrade -1
+          alembic upgrade head
           cd ..
 
       - name: Run Backend Unit & Integration Tests
@@ -60,7 +62,13 @@ jobs:
           ENVIRONMENT: test
           PYTHONPATH: backend:.
         run: |
-          python -m pytest backend/tests
+          python -m pytest backend/tests -v --durations=10
+
+      - name: Security Scan (Secret Scanning & Dependency Audit)
+        run: |
+          pip install pip-audit bandit
+          pip-audit -r backend/requirements.txt --ignore-vuln CVE-NONE || true
+          bandit -r backend/app -ll -x backend/app/tests || true
 
   frontend-test:
     name: Frontend Tests & Production Build
