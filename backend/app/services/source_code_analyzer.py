@@ -1,8 +1,22 @@
 import os
 import re
 import ast
+import fnmatch
 import hashlib
+import math
 from typing import Dict, List, Any, Optional, Tuple, Set
+
+from app.services.static_analysis_rules import (
+    ANALYZER_NAME,
+    ANALYZER_VERSION,
+    C_FAMILY_LANGS,
+    analyze_c_family_common,
+    analyze_python_extended,
+    make_finding,
+    parse_coverage_artifacts,
+    prepare_lines,
+    python_documentation_stats,
+)
 
 class CodeFindingItem:
     def __init__(self, d: Dict[str, Any]):
@@ -42,6 +56,19 @@ class AnalysisResult:
         self.category_remediation_hours = data.get("category_remediation_hours", {})
         self.findings = [CodeFindingItem(f) for f in data.get("findings", [])]
         self.hotspots = data.get("hotspots", [])
+        # v3.1.0 coverage telemetry
+        self.analyzer_version = data.get("analyzer_version", ANALYZER_VERSION)
+        self.supported_files_count = data.get("supported_files_count", self.files_analyzed)
+        self.files_excluded = data.get("files_excluded", 0)
+        self.unsupported_files_count = data.get("unsupported_files_count", 0)
+        self.parser_failures_count = data.get("parser_failures_count", 0)
+        self.ast_analyzed_count = data.get("ast_analyzed_count", 0)
+        self.syntax_tree_analyzed_count = data.get("syntax_tree_analyzed_count", 0)
+        self.heuristic_analyzed_count = data.get("heuristic_analyzed_count", 0)
+        self.language_coverage = data.get("language_coverage", {})
+        self.documentation_coverage_pct = data.get("documentation_coverage_pct")
+        self.measured_test_coverage_pct = data.get("measured_test_coverage_pct")
+        self.file_metrics = data.get("file_metrics", {})
 
     def __getitem__(self, key):
         return self._data[key]
@@ -84,18 +111,36 @@ class SourceCodeAnalyzer:
         (re.compile(r"""(?i)(?:api_key|apikey|secret|password|passwd|auth_token|access_token|private_key|aws_access_key|aws_secret|token)\s*[:=]\s*['"][a-zA-Z0-9_\-\.\/+=]{16,}['"]"""), "HARDCODED_SECRET_SUSPECTED", "Hardcoded credential or API secret pattern detected in source file", "Critical"),
         (re.compile(r"""ghp_[a-zA-Z0-9]{20,}"""), "GITHUB_TOKEN_EXPOSED", "GitHub personal access token exposed in source code", "Critical"),
         (re.compile(r"""-----BEGIN (?:RSA |EC |DSA |OPENSSH )?PRIVATE KEY-----"""), "HARDCODED_PRIVATE_KEY", "Unencrypted private cryptographic key committed in source file", "Critical"),
+        (re.compile(r"""\b(?:AKIA|ASIA)[0-9A-Z]{16}\b"""), "AWS_ACCESS_KEY_EXPOSED", "AWS access key identifier committed in source file", "Critical"),
     ]
 
     DANGEROUS_CALLS = [
-        (re.compile(r"""\b(eval|exec)\s*\("""), "DANGEROUS_EVAL_USAGE", "Dynamic code execution via eval/exec introduces arbitrary code execution vulnerabilities", "Critical"),
+        (re.compile(r"""(?<![\w.$>])(eval|exec)\s*\("""), "DANGEROUS_EVAL_USAGE", "Dynamic code execution via eval/exec introduces arbitrary code execution vulnerabilities", "Critical"),
         (re.compile(r"""\bsubprocess\.(?:Popen|call|run|check_output)\s*\(.*shell\s*=\s*True"""), "DANGEROUS_SHELL_INJECTION", "Subprocess execution with shell=True invites command injection attacks", "High"),
         (re.compile(r"""(?i)(?:execute|query)\s*\(\s*f['"].*\{.*\}"""), "SQL_INJECTION_FORMAT_STRING", "Potential SQL injection: Raw string formatting detected inside database query call", "Critical"),
     ]
 
-    def __init__(self, root_dir: str = ".", max_files: int = 2000, max_file_size_bytes: int = 1024 * 1024):
+    DEDUP_GROUPS = {
+        "PY_DANGEROUS_EVAL": "dynamic_eval", "JS_DANGEROUS_EVAL": "dynamic_eval",
+        "PHP_DANGEROUS_EVAL": "dynamic_eval", "DANGEROUS_EVAL_USAGE": "dynamic_eval",
+        "SQL_INJECTION_FORMAT_STRING": "sql_injection", "JAVA_SQL_INJECTION_CONCAT": "sql_injection",
+        "GO_SQL_INJECTION_CONCAT": "sql_injection", "CSHARP_SQL_INJECTION": "sql_injection",
+    }
+
+    ANALYSIS_MODE_AST = "ast"
+    ANALYSIS_MODE_HEURISTIC = "heuristic"
+
+    def __init__(
+        self,
+        root_dir: str = ".",
+        max_files: int = 2000,
+        max_file_size_bytes: int = 1024 * 1024,
+        excluded_paths: Optional[List[str]] = None,
+    ):
         self.root_dir = os.path.abspath(root_dir) if root_dir else os.path.abspath(".")
         self.max_files = max_files
         self.max_file_size_bytes = max_file_size_bytes
+        self.excluded_paths: List[str] = list(excluded_paths or [])
 
     def analyze_directory(self, dir_path: Optional[str] = None) -> AnalysisResult:
         """Analyzes a directory and returns wrapped AnalysisResult with attribute and key access."""
@@ -110,144 +155,253 @@ class SourceCodeAnalyzer:
         with open(abs_path, "r", encoding="utf-8", errors="replace") as f:
             content = f.read()
         lines = content.splitlines()
-        loc = len(lines)
         ext = os.path.splitext(file_path)[1].lower()
         lang = self.SUPPORTED_EXTENSIONS.get(ext, "unknown")
 
-        complexity = 1
-        raw_findings = []
-        if lang == "python":
-            comp, py_findings = self._analyze_python(file_path, content, lines)
-            complexity = max(complexity, comp)
-            raw_findings.extend(py_findings)
-        elif lang in ("javascript", "typescript"):
-            comp, js_findings = self._analyze_javascript_typescript(file_path, content, lines, lang)
-            complexity = max(complexity, comp)
-            raw_findings.extend(js_findings)
-        elif lang == "java":
-            comp, java_findings = self._analyze_java(file_path, content, lines)
-            complexity = max(complexity, comp)
-            raw_findings.extend(java_findings)
-        elif lang == "php":
-            comp, php_findings = self._analyze_php(file_path, content, lines)
-            complexity = max(complexity, comp)
-            raw_findings.extend(php_findings)
-        elif lang == "go":
-            comp, go_findings = self._analyze_go(file_path, content, lines)
-            complexity = max(complexity, comp)
-            raw_findings.extend(go_findings)
-        elif lang == "csharp":
-            comp, cs_findings = self._analyze_csharp(file_path, content, lines)
-            complexity = max(complexity, comp)
-            raw_findings.extend(cs_findings)
-        elif lang in ("c", "cpp"):
-            comp, cpp_findings = self._analyze_c_cpp(file_path, content, lines, lang)
-            complexity = max(complexity, comp)
-            raw_findings.extend(cpp_findings)
-        else:
-            comp, gen_findings = self._analyze_generic_code(file_path, content, lines, lang)
-            complexity = max(complexity, comp)
-            raw_findings.extend(gen_findings)
-
-        sec_findings = self._scan_security_patterns(file_path, lines)
-        raw_findings.extend(sec_findings)
-
+        complexity, raw_findings, meta = self._analyze_content(file_path, content, lines, lang)
         return {
             "file_path": file_path,
-            "lines_of_code": loc,
+            "lines_of_code": len(lines),
             "cyclomatic_complexity": complexity,
-            "findings": [CodeFindingItem(f) for f in raw_findings]
+            "analysis_mode": meta["mode"],
+            "findings": [CodeFindingItem(f) for f in raw_findings],
         }
+
+    # -------------------------------------------------------------------------
+    # Shared per-file dispatch
+    # -------------------------------------------------------------------------
+
+    def _analyze_content(
+        self, rel_path: str, content: str, lines: List[str], lang: str, is_test: bool = False
+    ) -> Tuple[int, List[Dict[str, Any]], Dict[str, Any]]:
+        """
+        Runs language analyzer + supplementary rules + security scan for one file.
+        Returns (complexity, normalized findings, meta) where meta carries the analysis
+        mode, parser failure flag and documentation statistics.
+        """
+        findings: List[Dict[str, Any]] = []
+        complexity = 1
+        meta: Dict[str, Any] = {"mode": self.ANALYSIS_MODE_HEURISTIC, "parse_failed": False,
+                                "doc_documented": 0, "doc_total": 0}
+        struct_lines: Optional[List[str]] = None
+
+        if lang == "python":
+            comp, lang_findings = self._analyze_python(rel_path, content, lines)
+            complexity = max(complexity, comp)
+            findings.extend(lang_findings)
+            if any(f.get("rule_id") == "SYNTAX_PARSE_ERROR" for f in lang_findings):
+                meta["parse_failed"] = True
+            else:
+                meta["mode"] = self.ANALYSIS_MODE_AST
+                doc_stats, has_module_doc = python_documentation_stats(content)
+                meta["doc_documented"] = doc_stats["documented"]
+                meta["doc_total"] = doc_stats["total"]
+                if not has_module_doc and len(lines) > 100 and not is_test:
+                    findings.append(make_finding(
+                        rel_path, 1, "MISSING_MODULE_DOCUMENTATION", "documentation", "Low",
+                        f"Module without docstring ({len(lines)} lines)",
+                        "Module exceeds 100 lines but has no module-level docstring describing its purpose.",
+                        f"{rel_path}: no module docstring",
+                        "Undocumented modules slow onboarding and make ownership/intent unclear.",
+                        "Add a module docstring summarising responsibilities and key entry points.",
+                        0.25, confidence="High",
+                    ))
+        elif lang in C_FAMILY_LANGS:
+            dispatch = {
+                "javascript": lambda: self._analyze_javascript_typescript(rel_path, content, lines, lang),
+                "typescript": lambda: self._analyze_javascript_typescript(rel_path, content, lines, lang),
+                "java": lambda: self._analyze_java(rel_path, content, lines),
+                "php": lambda: self._analyze_php(rel_path, content, lines),
+                "go": lambda: self._analyze_go(rel_path, content, lines),
+                "csharp": lambda: self._analyze_csharp(rel_path, content, lines),
+                "c": lambda: self._analyze_c_cpp(rel_path, content, lines, lang),
+                "cpp": lambda: self._analyze_c_cpp(rel_path, content, lines, lang),
+            }
+            comp, lang_findings = dispatch[lang]()
+            complexity = max(complexity, comp)
+            findings.extend(lang_findings)
+            code_lines, struct_lines = prepare_lines(content, lines, lang)
+            common_findings, doc_stats = analyze_c_family_common(rel_path, lang, lines, code_lines, struct_lines)
+            findings.extend(common_findings)
+            meta["doc_documented"] = doc_stats["documented"]
+            meta["doc_total"] = doc_stats["total"]
+            if doc_stats["total"] >= 5 and doc_stats["documented"] == 0 and len(lines) > 100 and not is_test:
+                findings.append(make_finding(
+                    rel_path, 1, "UNDOCUMENTED_PUBLIC_API", "documentation", "Low",
+                    f"No documentation comments on {doc_stats['total']} declarations",
+                    "None of the functions/classes declared in this file are preceded by a doc comment.",
+                    f"{rel_path}: 0/{doc_stats['total']} declarations documented",
+                    "Undocumented APIs increase onboarding time and misuse risk.",
+                    "Add JSDoc/Javadoc/XML-doc/GoDoc comments to exported declarations.",
+                    0.5, confidence="Medium",
+                ))
+        else:
+            comp, lang_findings = self._analyze_generic_code(rel_path, content, lines, lang)
+            complexity = max(complexity, comp)
+            findings.extend(lang_findings)
+
+        findings.extend(self._scan_security_patterns(rel_path, lines, struct_lines))
+        return complexity, self._finalize_findings(findings, meta["mode"]), meta
+
+    def _finalize_findings(self, findings: List[Dict[str, Any]], mode: str) -> List[Dict[str, Any]]:
+        """De-duplicates overlapping findings and attaches stable identity + provenance fields."""
+        seen_exact: Set[Tuple[str, int, str]] = set()
+        seen_group: Set[Tuple[str, int, str]] = set()
+        result: List[Dict[str, Any]] = []
+        for f in findings:
+            path = f.get("file_path", "")
+            line = int(f.get("line_start") or 0)
+            rule = f.get("rule_id", "")
+            exact_key = (path, line, rule)
+            if exact_key in seen_exact:
+                continue
+            group = self.DEDUP_GROUPS.get(rule)
+            if group:
+                group_key = (path, line, group)
+                if group_key in seen_group:
+                    continue
+                seen_group.add(group_key)
+            seen_exact.add(exact_key)
+            self._normalize_finding(f, mode)
+            result.append(f)
+        return result
+
+    @staticmethod
+    def _normalize_finding(f: Dict[str, Any], mode: str) -> Dict[str, Any]:
+        identity = f"{f.get('file_path', '')}:{f.get('line_start', 0)}:{f.get('rule_id', '')}"
+        f.setdefault("finding_id", hashlib.sha256(identity.encode("utf-8")).hexdigest()[:20])
+        f.setdefault("description", f.get("explanation") or f.get("title", ""))
+        f.setdefault("analyzer_name", ANALYZER_NAME)
+        f.setdefault("analyzer_version", ANALYZER_VERSION)
+        f.setdefault("analysis_mode", mode)
+        return f
+
+    def _is_excluded(self, rel_path: str) -> bool:
+        if not self.excluded_paths:
+            return False
+        rel = rel_path.replace("\\", "/")
+        while rel.startswith("./"):
+            rel = rel[2:]
+        base = rel.rsplit("/", 1)[-1]
+        for raw in self.excluded_paths:
+            if not raw or not isinstance(raw, str):
+                continue
+            pattern = raw.strip().replace("\\", "/").rstrip("/")
+            while pattern.startswith("./"):
+                pattern = pattern[2:]
+            if not pattern:
+                continue
+            if (
+                fnmatch.fnmatch(rel, pattern)
+                or fnmatch.fnmatch(rel, pattern + "/*")
+                or rel.startswith(pattern + "/")
+                or ("/" not in pattern and fnmatch.fnmatch(base, pattern))
+            ):
+                return True
+        return False
 
     def analyze_repository(self) -> Dict[str, Any]:
         """
         Executes static analysis across all supported source code files in repository.
-        Returns comprehensive metrics, file hotspots, and structured findings.
+        Returns comprehensive metrics, file hotspots, structured findings and explicit
+        coverage telemetry (what was analysed, how, and what was skipped).
         """
         files_to_analyze: List[str] = []
+        excluded_count = 0
+        oversized_count = 0
+        unsupported_count = 0
+        limit_skipped = 0
+
         for root, dirs, files in os.walk(self.root_dir):
-            dirs[:] = [d for d in dirs if d not in self.IGNORE_DIRS and not d.startswith(".")]
+            kept_dirs = []
+            for d in dirs:
+                if d in self.IGNORE_DIRS or d.startswith("."):
+                    continue
+                rel_dir = os.path.relpath(os.path.join(root, d), self.root_dir).replace("\\", "/")
+                if self._is_excluded(rel_dir):
+                    excluded_count += 1
+                    continue
+                kept_dirs.append(d)
+            dirs[:] = kept_dirs
             for file in files:
+                full_path = os.path.join(root, file)
+                rel_path = os.path.relpath(full_path, self.root_dir).replace("\\", "/")
                 ext = os.path.splitext(file)[1].lower()
-                if ext in self.SUPPORTED_EXTENSIONS:
-                    full_path = os.path.join(root, file)
-                    try:
-                        if os.path.getsize(full_path) <= self.max_file_size_bytes:
-                            files_to_analyze.append(full_path)
-                    except OSError:
+                if ext not in self.SUPPORTED_EXTENSIONS:
+                    unsupported_count += 1
+                    continue
+                if self._is_excluded(rel_path):
+                    excluded_count += 1
+                    continue
+                if os.path.islink(full_path):
+                    excluded_count += 1
+                    continue
+                try:
+                    if os.path.getsize(full_path) > self.max_file_size_bytes:
+                        oversized_count += 1
                         continue
+                except OSError:
+                    continue
                 if len(files_to_analyze) >= self.max_files:
-                    break
-            if len(files_to_analyze) >= self.max_files:
-                break
+                    limit_skipped += 1
+                    continue
+                files_to_analyze.append(full_path)
 
         findings: List[Dict[str, Any]] = []
         total_loc = 0
         file_metrics: Dict[str, Dict[str, Any]] = {}
         all_line_hashes: Dict[str, List[Tuple[str, int]]] = {}  # hash -> [(file_rel, line_no)]
         test_files_count = 0
+        parser_errors: List[str] = []
+        ast_count = 0
+        heuristic_count = 0
+        doc_documented = 0
+        doc_total = 0
+        language_coverage: Dict[str, Dict[str, Any]] = {}
 
         for file_path in files_to_analyze:
             rel_path = os.path.relpath(file_path, self.root_dir).replace("\\", "/")
             ext = os.path.splitext(file_path)[1].lower()
             lang = self.SUPPORTED_EXTENSIONS.get(ext, "unknown")
 
-            # Check if this is a test file
-            is_test = any(pattern in rel_path.lower() for pattern in [
-                "/test/", "/tests/", "test_", "_test.", ".spec.", ".test.", "testcase", "tests."
+            is_test = any(pattern in ("/" + rel_path.lower()) for pattern in [
+                "/test/", "/tests/", "/test_", "_test.", ".spec.", ".test.", "testcase", "/tests.", "/__tests__/"
             ])
-            if is_test:
-                test_files_count += 1
 
             try:
                 with open(file_path, "r", encoding="utf-8", errors="replace") as f:
                     content = f.read()
-            except Exception:
+            except Exception as read_err:
+                parser_errors.append(f"{rel_path}: unreadable ({type(read_err).__name__})")
                 continue
+
+            if is_test:
+                test_files_count += 1
 
             lines = content.splitlines()
             loc = len(lines)
             total_loc += loc
 
-            # Language-specific analysis
-            file_findings: List[Dict[str, Any]] = []
-            complexity = 1
-            if lang == "python":
-                comp, py_findings = self._analyze_python(rel_path, content, lines)
-                complexity = max(complexity, comp)
-                file_findings.extend(py_findings)
-            elif lang in ("javascript", "typescript"):
-                comp, js_findings = self._analyze_javascript_typescript(rel_path, content, lines, lang)
-                complexity = max(complexity, comp)
-                file_findings.extend(js_findings)
-            elif lang == "java":
-                comp, java_findings = self._analyze_java(rel_path, content, lines)
-                complexity = max(complexity, comp)
-                file_findings.extend(java_findings)
-            elif lang == "php":
-                comp, php_findings = self._analyze_php(rel_path, content, lines)
-                complexity = max(complexity, comp)
-                file_findings.extend(php_findings)
-            elif lang == "go":
-                comp, go_findings = self._analyze_go(rel_path, content, lines)
-                complexity = max(complexity, comp)
-                file_findings.extend(go_findings)
-            elif lang == "csharp":
-                comp, cs_findings = self._analyze_csharp(rel_path, content, lines)
-                complexity = max(complexity, comp)
-                file_findings.extend(cs_findings)
-            elif lang in ("c", "cpp"):
-                comp, cpp_findings = self._analyze_c_cpp(rel_path, content, lines, lang)
-                complexity = max(complexity, comp)
-                file_findings.extend(cpp_findings)
-            else:
-                comp, generic_findings = self._analyze_generic_code(rel_path, content, lines, lang)
-                complexity = max(complexity, comp)
-                file_findings.extend(generic_findings)
+            try:
+                complexity, file_findings, meta = self._analyze_content(rel_path, content, lines, lang, is_test=is_test)
+            except Exception as analysis_err:  # analyzer must never abort the whole repository
+                parser_errors.append(f"{rel_path}: analyzer error ({type(analysis_err).__name__})")
+                continue
 
-            # Security regex scans
-            sec_findings = self._scan_security_patterns(rel_path, lines)
-            file_findings.extend(sec_findings)
+            if meta["parse_failed"]:
+                parser_errors.append(f"{rel_path}: syntax parse failure")
+            if meta["mode"] == self.ANALYSIS_MODE_AST:
+                ast_count += 1
+            else:
+                heuristic_count += 1
+            doc_documented += meta["doc_documented"]
+            doc_total += meta["doc_total"]
+
+            lc = language_coverage.setdefault(lang, {"files": 0, "loc": 0, "mode": meta["mode"], "parse_failures": 0})
+            lc["files"] += 1
+            lc["loc"] += loc
+            if meta["parse_failed"]:
+                lc["parse_failures"] += 1
 
             # Track duplicate lines (normalized blocks of 6+ non-empty lines)
             self._index_code_lines_for_duplication(rel_path, lines, all_line_hashes)
@@ -257,23 +411,22 @@ class SourceCodeAnalyzer:
                 "complexity": complexity,
                 "findings_count": len(file_findings),
                 "language": lang,
-                "is_test": is_test
+                "is_test": is_test,
+                "analysis_mode": meta["mode"],
             }
             findings.extend(file_findings)
 
         # Detect cross-file code duplication
         dup_findings, dup_lines_count = self._detect_code_duplications(all_line_hashes)
-        findings.extend(dup_findings)
+        findings.extend(self._finalize_findings(dup_findings, self.ANALYSIS_MODE_HEURISTIC))
 
         # Calculate overall metrics
-        files_count = len(files_to_analyze)
+        files_count = len(file_metrics)
         avg_complexity = sum(m["complexity"] for m in file_metrics.values()) / max(1, files_count)
         max_complexity = max((m["complexity"] for m in file_metrics.values()), default=1)
         duplication_pct = round((dup_lines_count / max(1, total_loc)) * 100, 1)
 
-        # Calculate Maintainability Index (0-100) based on Halstead Volume and Cyclomatic Complexity approximation
-        # MI = max(0, min(100, 171 - 5.2 * ln(avg_loc) - 0.23 * avg_comp - 16.2 * ln(total_loc)))
-        import math
+        # Maintainability Index approximation (0-100) from average file size, complexity and finding density
         avg_loc = total_loc / max(1, files_count)
         try:
             mi_raw = 171.0 - 5.2 * math.log(max(1, avg_loc)) - 0.23 * avg_complexity - 1.5 * (len(findings) / max(1, files_count))
@@ -284,11 +437,13 @@ class SourceCodeAnalyzer:
         # Severity breakdown & category remediation hours
         severity_breakdown = {"Critical": 0, "High": 0, "Medium": 0, "Low": 0, "Info": 0}
         category_remediation_hours: Dict[str, float] = {}
+        category_counts: Dict[str, int] = {}
 
         for f in findings:
             sev = f.get("severity", "Medium")
             severity_breakdown[sev] = severity_breakdown.get(sev, 0) + 1
             cat = f.get("category", "maintainability")
+            category_counts[cat] = category_counts.get(cat, 0) + 1
             category_remediation_hours[cat] = round(
                 category_remediation_hours.get(cat, 0.0) + f.get("estimated_remediation_hours", 1.0),
                 1
@@ -330,10 +485,21 @@ class SourceCodeAnalyzer:
                 })
         hotspots = sorted(hotspot_candidates, key=lambda x: x["hotspot_score"], reverse=True)[:15]
 
-        # Calculate estimated total remediation hours
         total_remediation_hours = round(sum(f.get("estimated_remediation_hours", 1.0) for f in findings), 1)
 
+        # Real coverage artifacts only — never fabricated
+        try:
+            coverage = parse_coverage_artifacts(self.root_dir)
+        except Exception as cov_err:
+            coverage = {"measured_test_coverage_pct": None, "coverage_artifacts": [],
+                        "coverage_errors": [f"coverage discovery failed: {type(cov_err).__name__}"]}
+
+        documentation_coverage_pct = round(doc_documented * 100.0 / doc_total, 1) if doc_total > 0 else None
+        supported_files_count = files_count + excluded_count + oversized_count + limit_skipped
+
         return {
+            "analyzer_name": ANALYZER_NAME,
+            "analyzer_version": ANALYZER_VERSION,
             "files_analyzed": files_count,
             "lines_of_code": total_loc,
             "test_files_count": test_files_count,
@@ -344,10 +510,33 @@ class SourceCodeAnalyzer:
             "quality_grade": quality_grade,
             "defect_density": defect_density,
             "severity_breakdown": severity_breakdown,
+            "category_counts": category_counts,
             "category_remediation_hours": category_remediation_hours,
             "total_remediation_hours": total_remediation_hours,
             "findings": findings,
-            "hotspots": hotspots
+            "hotspots": hotspots,
+            # --- v3.1.0 analysis coverage telemetry ---
+            "supported_files_count": supported_files_count,
+            "files_excluded": excluded_count + oversized_count + limit_skipped,
+            "files_excluded_by_pattern": excluded_count,
+            "files_skipped_oversized": oversized_count,
+            "files_skipped_limit": limit_skipped,
+            "unsupported_files_count": unsupported_count,
+            "parser_failures_count": len(parser_errors),
+            "parser_errors": parser_errors[:100],
+            "ast_analyzed_count": ast_count,
+            "syntax_tree_analyzed_count": 0,
+            "heuristic_analyzed_count": heuristic_count,
+            "language_coverage": language_coverage,
+            "language_breakdown": {k: v["loc"] for k, v in language_coverage.items()},
+            "documentation_coverage_pct": documentation_coverage_pct,
+            "documented_units": doc_documented,
+            "documentable_units": doc_total,
+            "measured_test_coverage_pct": coverage["measured_test_coverage_pct"],
+            "coverage_percentage": coverage["measured_test_coverage_pct"],
+            "coverage_artifacts": coverage["coverage_artifacts"],
+            "coverage_errors": coverage["coverage_errors"],
+            "file_metrics": file_metrics,
         }
 
     # =========================================================================
@@ -583,7 +772,12 @@ class SourceCodeAnalyzer:
                         })
                     elif isinstance(node.func.value, ast.Name) and node.func.value.id == "yaml" and node.func.attr == "load":
                         # Check if Loader keyword argument is present and safe
-                        has_safe_loader = any(kw.arg == "Loader" and "SafeLoader" in getattr(kw.value, "attr", "") for kw in node.keywords)
+                        safe_loaders = ("SafeLoader", "CSafeLoader", "BaseLoader")
+                        loader_nodes = [kw.value for kw in node.keywords if kw.arg == "Loader"] + list(node.args[1:2])
+                        has_safe_loader = any(
+                            (getattr(ln, "attr", None) or getattr(ln, "id", None) or "") in safe_loaders
+                            for ln in loader_nodes
+                        )
                         if not has_safe_loader:
                             findings.append({
                                 "file_path": rel_path,
@@ -661,6 +855,7 @@ class SourceCodeAnalyzer:
                     "is_auto_verifiable": True
                 })
 
+        findings.extend(analyze_python_extended(rel_path, tree, lines))
         return max_file_complexity, findings
 
     # =========================================================================
@@ -670,6 +865,7 @@ class SourceCodeAnalyzer:
     def _analyze_javascript_typescript(self, rel_path: str, content: str, lines: List[str], lang: str) -> Tuple[int, List[Dict[str, Any]]]:
         findings: List[Dict[str, Any]] = []
         loc = len(lines)
+        code_lines, struct_lines = prepare_lines(content, lines, lang)
         is_ts = lang == "typescript" or rel_path.endswith((".ts", ".tsx"))
 
         # 1. File Length
@@ -721,21 +917,23 @@ class SourceCodeAnalyzer:
                 })
 
             # Skip pure comment lines for code syntax analysis
-            if trimmed.startswith(("//", "/*", "*")):
+            struct_line = struct_lines[idx - 1]
+            trimmed = code_lines[idx - 1].strip()
+            if not trimmed:
                 continue
 
-            open_b = line.count("{") - line.count("}")
+            open_b = struct_line.count("{") - struct_line.count("}")
             current_nesting = max(0, current_nesting + open_b)
             if current_nesting > max_nesting:
                 max_nesting = current_nesting
                 deep_nesting_line = idx
 
             for kw in branch_keywords:
-                if re.search(r'\b' + re.escape(kw) + r'\b', trimmed):
+                if re.search(r'\b' + re.escape(kw) + r'\b', struct_line):
                     branch_count += 1
 
             # 3. Loose Equality
-            if re.search(r'(?<![!=<>])==(?![=])', trimmed) or re.search(r'(?<![!])!=(?![=])', trimmed):
+            if re.search(r'(?<![!=<>])==(?![=])', struct_line) or re.search(r'(?<![!])!=(?![=])', struct_line):
                 findings.append({
                     "file_path": rel_path,
                     "line_start": idx,
@@ -773,7 +971,7 @@ class SourceCodeAnalyzer:
                 })
 
             # 5. Dynamic Eval & Execution
-            if re.search(r'\beval\s*\(|new\s+Function\s*\(|setTimeout\s*\(\s*[\'"`]|setInterval\s*\(\s*[\'"`]', trimmed):
+            if re.search(r'(?<![\w.$])eval\s*\(|new\s+Function\s*\(|setTimeout\s*\(\s*[\'"`]|setInterval\s*\(\s*[\'"`]', struct_line):
                 findings.append({
                     "file_path": rel_path,
                     "line_start": idx,
@@ -832,7 +1030,7 @@ class SourceCodeAnalyzer:
             # 8. TypeScript Specific Anti-Patterns
             if is_ts:
                 # Explicit any
-                if re.search(r':\s*any\b|\bas\s+any\b|<any>', trimmed):
+                if re.search(r':\s*any\b|\bas\s+any\b|<any>', struct_line):
                     findings.append({
                         "file_path": rel_path,
                         "line_start": idx,
@@ -851,7 +1049,7 @@ class SourceCodeAnalyzer:
                     })
 
                 # Non-null assertion
-                if re.search(r'[a-zA-Z0-9_$]+!\.[a-zA-Z0-9_$]+', trimmed):
+                if re.search(r'[a-zA-Z0-9_$]+!\.[a-zA-Z0-9_$]+', struct_line):
                     findings.append({
                         "file_path": rel_path,
                         "line_start": idx,
@@ -917,6 +1115,7 @@ class SourceCodeAnalyzer:
     def _analyze_java(self, rel_path: str, content: str, lines: List[str]) -> Tuple[int, List[Dict[str, Any]]]:
         findings: List[Dict[str, Any]] = []
         loc = len(lines)
+        code_lines, struct_lines = prepare_lines(content, lines, "java")
 
         if loc > 600:
             findings.append({
@@ -944,17 +1143,19 @@ class SourceCodeAnalyzer:
 
         for idx, line in enumerate(lines, start=1):
             trimmed = line.strip()
-            if trimmed.startswith(("//", "/*", "*")):
+            struct_line = struct_lines[idx - 1]
+            trimmed = code_lines[idx - 1].strip()
+            if not trimmed:
                 continue
 
-            open_b = line.count("{") - line.count("}")
+            open_b = struct_line.count("{") - struct_line.count("}")
             current_nesting = max(0, current_nesting + open_b)
             if current_nesting > max_nesting:
                 max_nesting = current_nesting
                 deep_nesting_line = idx
 
             for kw in branch_keywords:
-                if re.search(r'\b' + re.escape(kw) + r'\b', trimmed):
+                if re.search(r'\b' + re.escape(kw) + r'\b', struct_line):
                     branch_count += 1
 
             # 1. Empty catch block
@@ -1081,6 +1282,7 @@ class SourceCodeAnalyzer:
     def _analyze_php(self, rel_path: str, content: str, lines: List[str]) -> Tuple[int, List[Dict[str, Any]]]:
         findings: List[Dict[str, Any]] = []
         loc = len(lines)
+        code_lines, struct_lines = prepare_lines(content, lines, "php")
 
         if loc > 600:
             findings.append({
@@ -1108,17 +1310,19 @@ class SourceCodeAnalyzer:
 
         for idx, line in enumerate(lines, start=1):
             trimmed = line.strip()
-            if trimmed.startswith(("//", "#", "/*", "*")):
+            struct_line = struct_lines[idx - 1]
+            trimmed = code_lines[idx - 1].strip()
+            if not trimmed:
                 continue
 
-            open_b = line.count("{") - line.count("}")
+            open_b = struct_line.count("{") - struct_line.count("}")
             current_nesting = max(0, current_nesting + open_b)
             if current_nesting > max_nesting:
                 max_nesting = current_nesting
                 deep_nesting_line = idx
 
             for kw in branch_keywords:
-                if re.search(r'\b' + re.escape(kw) + r'\b', trimmed):
+                if re.search(r'\b' + re.escape(kw) + r'\b', struct_line):
                     branch_count += 1
 
             # 1. Short open tags
@@ -1244,6 +1448,7 @@ class SourceCodeAnalyzer:
     def _analyze_go(self, rel_path: str, content: str, lines: List[str]) -> Tuple[int, List[Dict[str, Any]]]:
         findings: List[Dict[str, Any]] = []
         loc = len(lines)
+        code_lines, struct_lines = prepare_lines(content, lines, "go")
         if loc > 600:
             findings.append({
                 "file_path": rel_path,
@@ -1270,17 +1475,19 @@ class SourceCodeAnalyzer:
 
         for idx, line in enumerate(lines, start=1):
             trimmed = line.strip()
-            if trimmed.startswith(("//", "/*", "*")):
+            struct_line = struct_lines[idx - 1]
+            trimmed = code_lines[idx - 1].strip()
+            if not trimmed:
                 continue
 
-            open_b = line.count("{") - line.count("}")
+            open_b = struct_line.count("{") - struct_line.count("}")
             current_nesting = max(0, current_nesting + open_b)
             if current_nesting > max_nesting:
                 max_nesting = current_nesting
                 deep_nesting_line = idx
 
             for kw in branch_keywords:
-                if re.search(r'\b' + re.escape(kw) + r'\b', trimmed):
+                if re.search(r'\b' + re.escape(kw) + r'\b', struct_line):
                     branch_count += 1
 
             # 1. Ignored error return
@@ -1388,6 +1595,7 @@ class SourceCodeAnalyzer:
     def _analyze_csharp(self, rel_path: str, content: str, lines: List[str]) -> Tuple[int, List[Dict[str, Any]]]:
         findings: List[Dict[str, Any]] = []
         loc = len(lines)
+        code_lines, struct_lines = prepare_lines(content, lines, "csharp")
         if loc > 600:
             findings.append({
                 "file_path": rel_path,
@@ -1414,17 +1622,19 @@ class SourceCodeAnalyzer:
 
         for idx, line in enumerate(lines, start=1):
             trimmed = line.strip()
-            if trimmed.startswith(("//", "/*", "*")):
+            struct_line = struct_lines[idx - 1]
+            trimmed = code_lines[idx - 1].strip()
+            if not trimmed:
                 continue
 
-            open_b = line.count("{") - line.count("}")
+            open_b = struct_line.count("{") - struct_line.count("}")
             current_nesting = max(0, current_nesting + open_b)
             if current_nesting > max_nesting:
                 max_nesting = current_nesting
                 deep_nesting_line = idx
 
             for kw in branch_keywords:
-                if re.search(r'\b' + re.escape(kw) + r'\b', trimmed):
+                if re.search(r'\b' + re.escape(kw) + r'\b', struct_line):
                     branch_count += 1
 
             # 1. Empty catch block
@@ -1531,6 +1741,7 @@ class SourceCodeAnalyzer:
     def _analyze_c_cpp(self, rel_path: str, content: str, lines: List[str], lang: str) -> Tuple[int, List[Dict[str, Any]]]:
         findings: List[Dict[str, Any]] = []
         loc = len(lines)
+        code_lines, struct_lines = prepare_lines(content, lines, lang)
         if loc > 600:
             findings.append({
                 "file_path": rel_path,
@@ -1557,17 +1768,19 @@ class SourceCodeAnalyzer:
 
         for idx, line in enumerate(lines, start=1):
             trimmed = line.strip()
-            if trimmed.startswith(("//", "/*", "*")):
+            struct_line = struct_lines[idx - 1]
+            trimmed = code_lines[idx - 1].strip()
+            if not trimmed:
                 continue
 
-            open_b = line.count("{") - line.count("}")
+            open_b = struct_line.count("{") - struct_line.count("}")
             current_nesting = max(0, current_nesting + open_b)
             if current_nesting > max_nesting:
                 max_nesting = current_nesting
                 deep_nesting_line = idx
 
             for kw in branch_keywords:
-                if re.search(r'\b' + re.escape(kw) + r'\b', trimmed):
+                if re.search(r'\b' + re.escape(kw) + r'\b', struct_line):
                     branch_count += 1
 
             # 1. Unsafe buffer functions
@@ -1727,7 +1940,7 @@ class SourceCodeAnalyzer:
     # Security Pattern Scanners
     # =========================================================================
 
-    def _scan_security_patterns(self, rel_path: str, lines: List[str]) -> List[Dict[str, Any]]:
+    def _scan_security_patterns(self, rel_path: str, lines: List[str], struct_lines: Optional[List[str]] = None) -> List[Dict[str, Any]]:
         findings: List[Dict[str, Any]] = []
 
         for idx, line in enumerate(lines, start=1):
@@ -1759,8 +1972,9 @@ class SourceCodeAnalyzer:
                     break
 
             # Dangerous calls
+            call_line = struct_lines[idx - 1] if struct_lines is not None and idx - 1 < len(struct_lines) else line
             for pattern, rule_id, desc, sev in self.DANGEROUS_CALLS:
-                if pattern.search(line):
+                if pattern.search(call_line):
                     findings.append({
                         "file_path": rel_path,
                         "line_start": idx,
@@ -1798,7 +2012,7 @@ class SourceCodeAnalyzer:
                 continue
 
             block_text = "\n".join(block)
-            b_hash = hashlib.md5(block_text.encode("utf-8")).hexdigest()
+            b_hash = hashlib.sha256(block_text.encode("utf-8")).hexdigest()
             line_hashes.setdefault(b_hash, []).append((rel_path, i + 1))
 
     def _detect_code_duplications(self, line_hashes: Dict[str, List[Tuple[str, int]]]) -> Tuple[List[Dict[str, Any]], int]:

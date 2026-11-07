@@ -589,9 +589,7 @@ class RepositoryIngestionService:
             )
 
             # Run static source code analysis
-            code_analyzer = SourceCodeAnalyzer(analysis_root)
-            if hasattr(code_analyzer, "excluded_paths") or excluded_paths:
-                code_analyzer.excluded_paths = excluded_paths or []
+            code_analyzer = SourceCodeAnalyzer(analysis_root, excluded_paths=excluded_paths or [])
             code_analysis = code_analyzer.analyze_repository()
 
             files_analyzed = code_analysis.get("files_analyzed", 0)
@@ -1108,7 +1106,16 @@ def persist_ingestion_snapshot(
                 "file_metrics": code_analysis.get("file_metrics", {}),
                 "coverage_percentage": code_analysis.get("coverage_percentage"),
                 "ast_analyzed_count": code_analysis.get("ast_analyzed_count"),
+                "syntax_tree_analyzed_count": code_analysis.get("syntax_tree_analyzed_count"),
                 "heuristic_analyzed_count": code_analysis.get("heuristic_analyzed_count"),
+                "supported_files_count": code_analysis.get("supported_files_count"),
+                "language_coverage": code_analysis.get("language_coverage", {}),
+                "documentation_coverage_pct": code_analysis.get("documentation_coverage_pct"),
+                "measured_test_coverage_pct": code_analysis.get("measured_test_coverage_pct"),
+                "coverage_artifacts": code_analysis.get("coverage_artifacts", []),
+                "category_counts": code_analysis.get("category_counts", {}),
+                "analyzer_name": code_analysis.get("analyzer_name"),
+                "static_analyzer_version": code_analysis.get("analyzer_version"),
             },
             dependencies_json=dependencies,
             findings_json=code_analysis.get("findings", []),
