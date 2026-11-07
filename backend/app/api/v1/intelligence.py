@@ -347,6 +347,7 @@ async def assistant_chat(
         )
 
     from app.services.ai_engineering_assistant import AIEngineeringAssistant
+    from app.services.integration_config_service import get_org_integration_config
     from app.models.all_models import Assessment, RiskFinding, ProjectTechnology, Technology
 
     # Gather project telemetry
@@ -359,6 +360,20 @@ async def assistant_chat(
     raw = latest_asmt.raw_output if latest_asmt and latest_asmt.raw_output else {}
     hotspots = raw.get("hotspots", [])
     code_findings = raw.get("code_findings", [])
+    if not code_findings and latest_asmt and hasattr(latest_asmt, "code_findings") and latest_asmt.code_findings:
+        code_findings = [
+            {
+                "id": cf.id,
+                "file_path": cf.file_path,
+                "line_start": cf.line_start,
+                "title": cf.title,
+                "severity": cf.severity,
+                "category": cf.category,
+                "explanation": cf.explanation,
+                "estimated_remediation_hours": cf.estimated_remediation_hours
+            }
+            for cf in latest_asmt.code_findings
+        ]
     
     risks = db.query(RiskFinding).filter(RiskFinding.project_id == project.id).all()
     risk_list = [{"title": r.title, "severity": r.severity} for r in risks]
@@ -367,8 +382,7 @@ async def assistant_chat(
     dep_list = []
     for l in links:
         t = db.query(Technology).filter(Technology.id == l.technology_id).first()
-        if t:
-            dep_list.append({"name": t.name, "version": l.installed_version or "latest"})
+        dep_list.append({"name": t.name if t else l.technology_id, "version": l.installed_version or "latest"})
 
     telemetry = {
         "health_score": latest_asmt.overall_health_score if latest_asmt else 80.0,
@@ -378,7 +392,12 @@ async def assistant_chat(
         "dependencies": dep_list
     }
 
-    assistant = AIEngineeringAssistant()
+    org_cfg = get_org_integration_config(current_user.org_id, db)
+    assistant = AIEngineeringAssistant(
+        gemini_api_key=org_cfg.gemini_api_key,
+        openai_api_key=org_cfg.openai_api_key,
+        model_name=org_cfg.ai_model_name
+    )
     chat_result = await assistant.chat(
         project_name=project.name,
         user_message=req.message,
@@ -394,7 +413,7 @@ async def assistant_chat(
         org_id=current_user.org_id,
         user_id=current_user.id,
         provider=chat_result.get("provider_used", "deterministic"),
-        model="assistant-chat-v3",
+        model=chat_result.get("model_used", "assistant-chat-v3"),
         prompt_tokens=max(10, len(req.message) // 4 + 150),
         completion_tokens=max(10, len(chat_result.get("response", "")) // 4),
         latency_ms=chat_result.get("latency_ms", 10.0),
@@ -422,6 +441,7 @@ async def get_assistant_recommendations(
         )
 
     from app.services.ai_engineering_assistant import AIEngineeringAssistant
+    from app.services.integration_config_service import get_org_integration_config
     from app.models.all_models import Assessment, ProjectTechnology, Technology
 
     latest_asmt = (
@@ -433,15 +453,37 @@ async def get_assistant_recommendations(
     raw = latest_asmt.raw_output if latest_asmt and latest_asmt.raw_output else {}
     hotspots = raw.get("hotspots", [])
     code_findings = raw.get("code_findings", [])
+    if not code_findings and latest_asmt and hasattr(latest_asmt, "code_findings") and latest_asmt.code_findings:
+        code_findings = [
+            {
+                "id": cf.id,
+                "file_path": cf.file_path,
+                "line_start": cf.line_start,
+                "title": cf.title,
+                "severity": cf.severity,
+                "category": cf.category,
+                "explanation": cf.explanation,
+                "estimated_remediation_hours": cf.estimated_remediation_hours
+            }
+            for cf in latest_asmt.code_findings
+        ]
 
     links = db.query(ProjectTechnology).filter(ProjectTechnology.project_id == project.id).all()
-    dep_list = [{"name": l.technology_id, "version": l.installed_version or "latest"} for l in links]
+    dep_list = []
+    for l in links:
+        t = db.query(Technology).filter(Technology.id == l.technology_id).first()
+        dep_list.append({"name": t.name if t else l.technology_id, "version": l.installed_version or "latest"})
 
     score = latest_asmt.overall_health_score if latest_asmt else 80.0
     risk_class = latest_asmt.risk_classification if latest_asmt else "Good"
     hours = latest_asmt.estimated_remediation_hours if latest_asmt else 10.0
 
-    assistant = AIEngineeringAssistant()
+    org_cfg = get_org_integration_config(current_user.org_id, db)
+    assistant = AIEngineeringAssistant(
+        gemini_api_key=org_cfg.gemini_api_key,
+        openai_api_key=org_cfg.openai_api_key,
+        model_name=org_cfg.ai_model_name
+    )
     recs = await assistant.generate_engineering_recommendations(
         project_name=project.name,
         overall_score=score,

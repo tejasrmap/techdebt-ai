@@ -18,20 +18,36 @@ DIRECT_INJECTION_PATTERNS = [
     (r"new\s+system\s+prompt\s*:", "SYSTEM_PROMPT_SPOOFING")
 ]
 
-# Sensitive credentials patterns to redact in model outputs
+# Sensitive credentials patterns to redact in model inputs and outputs
 SECRET_LEAK_PATTERNS = [
-    (r"sk-[a-zA-Z0-9]{32,}", "OPENAI_API_KEY_LEAK"),
+    (r"sk-[a-zA-Z0-9]{20,}", "OPENAI_API_KEY_LEAK"),
     (r"ghp_[a-zA-Z0-9]{36,}", "GITHUB_PAT_LEAK"),
     (r"AKIA[0-9A-Z]{16}", "AWS_ACCESS_KEY_LEAK"),
     (r"AIza[0-9A-Za-z-_]{35}", "GOOGLE_API_KEY_LEAK"),
+    (r"rzp_(?:test|live)_[a-zA-Z0-9]{14,}", "RAZORPAY_KEY_LEAK"),
     (r"bearer\s+[a-zA-Z0-9\._-]{20,}", "BEARER_TOKEN_LEAK"),
-    (r"-----BEGIN\s+PRIVATE\s+KEY-----", "PRIVATE_KEY_LEAK")
+    (r"-----BEGIN\s+PRIVATE\s+KEY-----[\s\S]*?-----END\s+PRIVATE\s+KEY-----", "PRIVATE_KEY_LEAK"),
+    (r"(?:password|passwd|pwd|secret)\s*[:=]\s*['\"][^'\"]{6,}['\"]", "PASSWORD_ASSIGNMENT_LEAK"),
+    (r"postgres(?:ql)?:\/\/[^:]+:[^@]+@[^\s\/]+", "DATABASE_URI_CREDENTIAL_LEAK")
 ]
 
 class PromptDefenseService:
     @staticmethod
     def generate_canary() -> str:
         return f"CANARY_{secrets.token_hex(8).upper()}"
+
+    @classmethod
+    def redact_secrets(cls, text: str) -> str:
+        """
+        Redacts sensitive tokens, credentials, API keys, and connection strings from text
+        prior to transmitting outbound prompts or telemetry to external LLM providers.
+        """
+        if not text:
+            return ""
+        redacted = text
+        for pattern, rule_id in SECRET_LEAK_PATTERNS:
+            redacted = re.sub(pattern, f"[REDACTED_{rule_id}]", redacted, flags=re.IGNORECASE)
+        return redacted
 
     @classmethod
     def wrap_untrusted_input(cls, untrusted_content: str, label: str = "untrusted_content") -> Tuple[str, str]:
