@@ -62,7 +62,18 @@ jobs:
           ENVIRONMENT: test
           PYTHONPATH: .
         run: |
-          python -m pytest tests -v --durations=10
+          python -m pytest tests -v --durations=10 --tb=short > pytest_run.log 2>&1 || (cat pytest_run.log && exit 1)
+
+      - name: Publish Test Summary
+        if: always()
+        working-directory: ./backend
+        run: |
+          if [ -f pytest_run.log ]; then
+            echo "## Pytest Run Failures & Summary" >> $GITHUB_STEP_SUMMARY
+            echo '```text' >> $GITHUB_STEP_SUMMARY
+            grep -E "FAILED|ERROR|short test summary" -A 100 pytest_run.log >> $GITHUB_STEP_SUMMARY || tail -n 60 pytest_run.log >> $GITHUB_STEP_SUMMARY
+            echo '```' >> $GITHUB_STEP_SUMMARY
+          fi
 
       - name: Security Scan (Secret Scanning & Dependency Audit)
         working-directory: ./backend
