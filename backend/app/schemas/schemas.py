@@ -237,6 +237,7 @@ class RiskResponse(BaseModel):
     status: str
     assigned_to: Optional[str] = None
     assignee_name: Optional[str] = None
+    estimated_remediation_hours: Optional[float] = 2.0
     resolution_notes: str
     resolved_at: Optional[datetime] = None
     created_at: datetime
