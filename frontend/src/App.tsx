@@ -128,7 +128,7 @@ const MainApp: React.FC = () => {
           {currentTab === 'compare' && <ComparisonView />}
           {currentTab === 'history' && <HistoricalIntelligenceView />}
           {currentTab === 'reports' && <ReportsView />}
-          {currentTab === 'billing' && <BillingView />}
+          {currentTab === 'billing' && <BillingView onNavigate={setCurrentTab} />}
           {currentTab === 'teams' && <TeamManagementView />}
           {currentTab === 'notifications' && <NotificationsView />}
           {currentTab === 'pricing' && <PricingView />}

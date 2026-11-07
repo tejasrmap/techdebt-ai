@@ -8,7 +8,7 @@ import shutil
 import tempfile
 import logging
 import uuid
-from datetime import datetime
+from datetime import datetime, timedelta
 from threading import Lock
 from urllib.parse import urlparse, urljoin, quote, quote_plus
 from typing import Dict, Any, List, Optional, Tuple
@@ -1447,6 +1447,135 @@ class IngestionJobManager:
             except Exception:
                 return None
         return None
+
+    def cancel_job(self, job_id: str, org_id: Optional[str] = None) -> bool:
+        """Transitions an active ingestion job to CANCELLED in-memory and in DB."""
+        now = datetime.utcnow()
+        now_iso = now.isoformat()
+        cancelled = False
+
+        with self._lock:
+            if job_id in self._jobs:
+                job = self._jobs[job_id]
+                if org_id and job["org_id"] != org_id:
+                    return False
+                if job["sync_state"] in self.ACTIVE_SYNC_STATES:
+                    job["status"] = "cancelled"
+                    job["sync_state"] = SYNC_STATE_CANCELLED
+                    job["stage"] = "Ingestion job cancelled by user"
+                    job["completed_at"] = now_iso
+                    cancelled = True
+
+        if self._persist_db:
+            try:
+                from app.database import SessionLocal
+                from app.models.all_models import RepositoryIngestionRun, RepositoryConnection
+
+                db = SessionLocal()
+                try:
+                    q = db.query(RepositoryIngestionRun).filter(RepositoryIngestionRun.id == job_id)
+                    if org_id:
+                        q = q.filter(RepositoryIngestionRun.org_id == org_id)
+                    run = q.first()
+                    if run and run.status in self.ACTIVE_SYNC_STATES:
+                        run.status = SYNC_STATE_CANCELLED
+                        run.completed_at = now
+                        run.error_message = "Cancelled by user request"
+                        conn = db.query(RepositoryConnection).filter(RepositoryConnection.project_id == run.project_id).first()
+                        if conn and conn.status == "syncing":
+                            conn.status = "synced"
+                            conn.last_sync_status = SYNC_STATE_CANCELLED
+                        db.commit()
+                        cancelled = True
+                finally:
+                    db.close()
+            except Exception as e:
+                logger.error(f"Error cancelling DB ingestion run {job_id}: {e}")
+
+        return cancelled
+
+    def recover_stalled_jobs(self, timeout_minutes: int = 45) -> int:
+        """
+        Scans for active jobs that have stalled past timeout_minutes (e.g. following a worker crash or restart).
+        Transitions them safely to FAILED with explanatory error message.
+        """
+        cutoff = datetime.utcnow() - timedelta(minutes=timeout_minutes)
+        recovered_count = 0
+
+        # In-memory recovery
+        with self._lock:
+            for j in self._jobs.values():
+                if j["sync_state"] in self.ACTIVE_SYNC_STATES:
+                    created_iso = j.get("created_at")
+                    started_iso = j.get("started_at") or created_iso
+                    if started_iso:
+                        try:
+                            started_dt = datetime.fromisoformat(started_iso)
+                            if started_dt < cutoff:
+                                j["status"] = "failed"
+                                j["sync_state"] = SYNC_STATE_FAILED
+                                j["error"] = "Ingestion job timed out or worker process terminated unexpectedly."
+                                j["completed_at"] = datetime.utcnow().isoformat()
+                                recovered_count += 1
+                        except Exception:
+                            pass
+
+        # Database-backed recovery
+        if self._persist_db:
+            try:
+                from app.database import SessionLocal
+                from app.models.all_models import RepositoryIngestionRun, RepositoryConnection
+
+                db = SessionLocal()
+                try:
+                    stalled_runs = (
+                        db.query(RepositoryIngestionRun)
+                        .filter(
+                            RepositoryIngestionRun.status.in_(self.ACTIVE_SYNC_STATES),
+                            RepositoryIngestionRun.created_at < cutoff,
+                        )
+                        .all()
+                    )
+                    for run in stalled_runs:
+                        run.status = SYNC_STATE_FAILED
+                        run.error_message = "Ingestion job timed out or worker process terminated unexpectedly."
+                        run.completed_at = datetime.utcnow()
+                        conn = db.query(RepositoryConnection).filter(RepositoryConnection.project_id == run.project_id).first()
+                        if conn and conn.status == "syncing":
+                            conn.status = "failed"
+                            conn.last_sync_status = SYNC_STATE_FAILED
+                        recovered_count += 1
+                    if stalled_runs:
+                        db.commit()
+                finally:
+                    db.close()
+            except Exception as e:
+                logger.error(f"Error recovering stalled ingestion runs: {e}")
+
+        return recovered_count
+
+    @staticmethod
+    def cleanup_expired_workspaces(workspace_root: Optional[str] = None, max_age_hours: int = 24) -> int:
+        """Deletes expired temporary repository workspaces older than max_age_hours."""
+        target_dir = workspace_root or os.getenv("WORKSPACE_ROOT", "/tmp/techdebt_workspaces")
+        if not os.path.exists(target_dir):
+            return 0
+        cleaned = 0
+        cutoff = time.time() - (max_age_hours * 3600)
+        try:
+            for item in os.listdir(target_dir):
+                item_path = os.path.join(target_dir, item)
+                try:
+                    if os.path.isdir(item_path):
+                        mtime = os.path.getmtime(item_path)
+                        if mtime < cutoff:
+                            shutil.rmtree(item_path, ignore_errors=True)
+                            cleaned += 1
+                except Exception:
+                    pass
+        except Exception as e:
+            logger.warning(f"Error during workspace cleanup: {e}")
+        return cleaned
 
 
 ingestion_job_manager = IngestionJobManager()

@@ -56,13 +56,14 @@ def test_github_webhook_ping():
     assert res.json()["status"] == "pong"
 
 def test_github_webhook_push_with_valid_hmac():
-    proj_id, repo_url, secret = setup_test_repo("github", "https://github.com/org/repo-sync")
+    unique_sha = hashlib.sha1(uuid.uuid4().bytes).hexdigest()
+    proj_id, repo_url, secret = setup_test_repo("github", f"https://github.com/org/repo-{uuid.uuid4().hex[:8]}")
     payload = {
         "repository": {"html_url": repo_url},
         "ref": "refs/heads/main",
-        "after": "c0ffee1234567890abcdef1234567890abcdef12",
+        "after": unique_sha,
         "head_commit": {
-            "id": "c0ffee1234567890abcdef1234567890abcdef12",
+            "id": unique_sha,
             "message": "fix: update production dependencies",
             "author": {"name": "Senior Dev"}
         }
@@ -83,7 +84,7 @@ def test_github_webhook_push_with_valid_hmac():
     data = res.json()
     assert data["status"] == "accepted"
     assert data["branch"] == "main"
-    assert data["commit_sha"] == "c0ffee1234567890abcdef1234567890abcdef12"
+    assert data["commit_sha"] == unique_sha
 
 def test_github_webhook_push_with_invalid_hmac():
     proj_id, repo_url, secret = setup_test_repo("github", "https://github.com/org/repo-bad-sig")
@@ -106,13 +107,14 @@ def test_github_webhook_push_with_invalid_hmac():
     assert "Invalid GitHub webhook" in res.json()["detail"]
 
 def test_gitlab_webhook_push_with_token():
-    proj_id, repo_url, secret = setup_test_repo("gitlab", "https://gitlab.com/group/proj-gl", secret="gl-secret-xyz")
+    gl_sha = f"gl_sha_{uuid.uuid4().hex[:12]}"
+    proj_id, repo_url, secret = setup_test_repo("gitlab", f"https://gitlab.com/group/proj-{uuid.uuid4().hex[:8]}", secret="gl-secret-xyz")
     payload = {
         "project": {"web_url": repo_url},
         "ref": "refs/heads/main",
-        "checkout_sha": "gl_sha_123456",
+        "checkout_sha": gl_sha,
         "user_name": "GitLab Admin",
-        "commits": [{"id": "gl_sha_123456", "message": "feat: enterprise dashboard"}]
+        "commits": [{"id": gl_sha, "message": "feat: enterprise dashboard"}]
     }
 
     # 1. Invalid token returns 401

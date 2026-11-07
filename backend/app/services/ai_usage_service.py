@@ -126,24 +126,40 @@ class AIUsageMeteringService:
         total_tokens = usage_rec.count if usage_rec else 0.0
         token_limit = usage_rec.limit if usage_rec else 100_000.0
 
-        # Query all ledger entries for this org
-        ledgers = db.query(AIUsageLedger).filter(
-            AIUsageLedger.org_id == org_id
-        ).all()
+        # SQL-level aggregation for totals (O(1) memory instead of loading all ORM rows)
+        base_query = db.query(
+            func.coalesce(func.sum(AIUsageLedger.cost_usd), 0.0).label("total_cost"),
+            func.coalesce(func.sum(AIUsageLedger.prompt_tokens), 0).label("total_prompt"),
+            func.coalesce(func.sum(AIUsageLedger.completion_tokens), 0).label("total_comp"),
+            func.count(AIUsageLedger.id).label("total_requests")
+        ).filter(AIUsageLedger.org_id == org_id)
 
-        total_cost = sum(l.cost_usd for l in ledgers)
-        total_prompt_tok = sum(l.prompt_tokens for l in ledgers)
-        total_comp_tok = sum(l.completion_tokens for l in ledgers)
+        totals = base_query.first()
+        total_cost = float(totals.total_cost) if totals else 0.0
+        total_prompt_tok = int(totals.total_prompt) if totals else 0
+        total_comp_tok = int(totals.total_comp) if totals else 0
+        total_requests = int(totals.total_requests) if totals else 0
 
-        # Provider breakdown
+        # SQL-level group by for provider breakdown
+        prov_rows = (
+            db.query(
+                AIUsageLedger.provider,
+                func.count(AIUsageLedger.id).label("req_count"),
+                func.coalesce(func.sum(AIUsageLedger.total_tokens), 0).label("tok_sum"),
+                func.coalesce(func.sum(AIUsageLedger.cost_usd), 0.0).label("cost_sum")
+            )
+            .filter(AIUsageLedger.org_id == org_id)
+            .group_by(AIUsageLedger.provider)
+            .all()
+        )
+
         provider_breakdown: Dict[str, Dict[str, Any]] = {}
-        for l in ledgers:
-            p = l.provider
-            if p not in provider_breakdown:
-                provider_breakdown[p] = {"requests_count": 0, "total_tokens": 0, "cost_usd": 0.0}
-            provider_breakdown[p]["requests_count"] += 1
-            provider_breakdown[p]["total_tokens"] += l.total_tokens
-            provider_breakdown[p]["cost_usd"] = round(provider_breakdown[p]["cost_usd"] + l.cost_usd, 6)
+        for row in prov_rows:
+            provider_breakdown[row.provider] = {
+                "requests_count": int(row.req_count),
+                "total_tokens": int(row.tok_sum),
+                "cost_usd": round(float(row.cost_sum), 6)
+            }
 
         pct_used = round((total_tokens / token_limit * 100.0) if token_limit > 0 else 0.0, 1)
 
@@ -156,7 +172,7 @@ class AIUsageMeteringService:
             "total_estimated_cost_usd": round(total_cost, 4),
             "prompt_tokens_count": total_prompt_tok,
             "completion_tokens_count": total_comp_tok,
-            "total_requests_count": len(ledgers),
+            "total_requests_count": total_requests,
             "providers_breakdown": provider_breakdown
         }
 

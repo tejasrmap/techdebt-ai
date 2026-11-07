@@ -75,9 +75,10 @@ def test_ingestion_job_concurrency_limit():
     assert "maximum concurrent ingestion limit" in str(exc.value)
 
 def test_async_sync_and_poll_api():
-    headers = get_auth_headers()
+    uid = uuid.uuid4().hex[:8]
+    headers = get_auth_headers(email=f"async_{uid}@techdebt.ai", org=f"Async Org {uid}")
     # 1. Create a project with unique name
-    proj_name = f"Async Ingest Proj {uuid.uuid4().hex[:8]}"
+    proj_name = f"Async Ingest Proj {uid}"
     p_res = client.post("/api/v1/projects", json={"name": proj_name}, headers=headers)
     assert p_res.status_code in (200, 201)
     proj_id = p_res.json()["id"]

@@ -18,11 +18,44 @@ from collections import defaultdict
 from fastapi import Request, HTTPException, status
 from sqlalchemy.orm import Session
 
+import ipaddress
+
 logger = logging.getLogger(__name__)
 
 
+def is_trusted_proxy(ip_str: str) -> bool:
+    """Checks whether an immediate upstream IP address is in the authorized trusted proxy list."""
+    if not ip_str:
+        return False
+    trusted_raw = os.getenv("TRUSTED_PROXIES", "127.0.0.1,::1,10.0.0.0/8,172.16.0.0/12,192.168.0.0/16")
+    trusted_list = [p.strip() for p in trusted_raw.split(",") if p.strip()]
+    try:
+        client_addr = ipaddress.ip_address(ip_str)
+        for t in trusted_list:
+            if "/" in t:
+                if client_addr in ipaddress.ip_network(t, strict=False):
+                    return True
+            else:
+                if client_addr == ipaddress.ip_address(t):
+                    return True
+    except Exception:
+        pass
+    return False
+
+
 def get_client_ip(request: Request) -> str:
-    """Extract real client IP taking proxies and ingress headers into account."""
+    """
+    Extract real client IP with strict trusted-proxy verification.
+    X-Forwarded-For, CF-Connecting-IP, and X-Real-IP are inspected ONLY when the immediate
+    request peer (request.client.host) is a verified trusted proxy (e.g., Nginx, Envoy, Cloudflare).
+    Direct connections from untrusted peers return direct_client_ip to prevent spoofed header bypass.
+    """
+    direct_client_ip = request.client.host if request.client else "127.0.0.1"
+
+    # Only trust ingress proxy headers if the direct client is an authorized reverse proxy
+    if not is_trusted_proxy(direct_client_ip):
+        return direct_client_ip
+
     cf_ip = request.headers.get("cf-connecting-ip")
     if cf_ip:
         return cf_ip.strip()
@@ -36,9 +69,7 @@ def get_client_ip(request: Request) -> str:
     if x_real:
         return x_real.strip()
 
-    if request.client:
-        return request.client.host
-    return "127.0.0.1"
+    return direct_client_ip
 
 
 class DistributedRateLimiter:

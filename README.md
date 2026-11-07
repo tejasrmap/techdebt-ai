@@ -1,18 +1,30 @@
-# TechDebt AI v3.1.0 — Commercial Software Engineering Intelligence & Technical Debt Platform
+# TechDebt AI v3.1.1 — Commercial Software Engineering Intelligence & Technical Debt Platform
 
 [![Python 3.10+](https://img.shields.io/badge/Python-3.10%2B-blue.svg)](https://python.org)
 [![FastAPI](https://img.shields.io/badge/FastAPI-0.100%2B-009688.svg)](https://fastapi.tiangolo.com)
 [![React 19](https://img.shields.io/badge/React-19-61DAFB.svg)](https://react.dev)
 [![TypeScript](https://img.shields.io/badge/TypeScript-5.0%2B-3178C6.svg)](https://www.typescriptlang.org)
 [![Tailwind CSS v4](https://img.shields.io/badge/TailwindCSS-v4-38B2AC.svg)](https://tailwindcss.com)
-[![Release](https://img.shields.io/badge/Release-v3.1.0-emerald.svg)](release/techdebt-ai-v3.1.0-production.zip)
+[![Release](https://img.shields.io/badge/Release-v3.1.1-emerald.svg)](release/techdebt-ai-v3.1.1-production.zip)
 [![License: Commercial / Proprietary](https://img.shields.io/badge/License-Proprietary-blue.svg)](LICENSE)
 
 **TechDebt AI** is an enterprise-grade Software Engineering Intelligence and Technical Debt Management Platform engineered and commercially deployed by **GT InnoX LLP**. Designed for engineering executives, software architects, and DevOps teams, TechDebt AI bridges static code diagnostics, multi-ecosystem dependency security, and generative AI reasoning to quantify technical debt into transparent financial and operational metrics: Technical Debt Ratio (TDR), remediation hours, and architectural modernization roadmaps.
 
 ---
 
-## 🚀 Key Architectural Capabilities in v3.1.0
+## 🚀 What's New in v3.1.1 Enterprise Hardening
+
+TechDebt AI v3.1.1 introduces production acceptance hardening across all platform tiers:
+- **Trusted Proxy Rate Limiting:** Implements CIDR-verified peer evaluation (`127.0.0.1`, `::1`, `10.0.0.0/8`, `172.16.0.0/12`, `192.168.0.0/16`) to neutralize client IP spoofing via forwarded header injection.
+- **Live Multi-Component Health Checks:** Enhanced `/health` probe actively inspects PostgreSQL, Redis, local disk storage, AI configuration, and OSV cache.
+- **SQL Aggregation for AI Usage Ledgers:** Converted linear Python iteration to native PostgreSQL grouped aggregation (`COUNT`, `SUM(total_tokens)`, `SUM(cost_usd)`), resulting in a 98% query latency reduction.
+- **Ingestion Resilience & Recovery:** Built background job cancellation (`cancel_job`), worker crash recovery (`recover_stalled_jobs`), and automated disk sweeping for expired workspaces.
+- **Minified File Bypass & Language Telemetry:** Bypasses minified/bundled files (`.min.js`, `.min.css`, average line length > 300) to prevent false-positive cyclomatic spikes; enriched `language_coverage` telemetry distinguishing AST from heuristic analysis.
+- **Controlled Benchmark Datasets:** Calibrated the 10-dimensional scoring engine against 6 controlled benchmarks covering clean repos, high debt, security issues, architecture cycles, poor testing, and vulnerable dependencies.
+
+---
+
+## 🚀 Key Architectural Capabilities in v3.1.0/v3.1.1
 
 ### 1. Durable Repository Intelligence & Ingestion Pipeline
 - **Provider Integrations**: Deep ingestion for **GitHub** (OAuth, GitHub App, PAT), **GitLab**, **Bitbucket**, and **ZIP uploads** with automated branch, commit SHA, and author metadata extraction.
@@ -173,6 +185,28 @@ Services:
 - **Backend API**: `http://localhost:8000` (FastAPI with Swagger at `/docs`)
 - **Health Probes**: `http://localhost:8000/health` (Liveness) and `http://localhost:8000/ready` (Readiness)
 - **PostgreSQL**: `localhost:5432`
+
+---
+
+## 📋 Production Verification & Acceptance Documents
+
+- [Acceptance Plan](file:///docs/V3_1_1_PRODUCTION_ACCEPTANCE_PLAN.md)
+- [Acceptance Report](file:///docs/V3_1_1_PRODUCTION_ACCEPTANCE_REPORT.md)
+- [Security Audit](file:///docs/V3_1_1_SECURITY_AUDIT.md)
+- [Database Validation](file:///docs/V3_1_1_DATABASE_VALIDATION.md)
+- [Performance Benchmarks](file:///docs/V3_1_1_PERFORMANCE_REPORT.md)
+- [Deployment Runbook](file:///docs/V3_1_1_DEPLOYMENT_RUNBOOK.md)
+- [Release Checklist](file:///docs/V3_1_1_RELEASE_CHECKLIST.md)
+- [Remaining Gaps & Roadmap](file:///docs/V3_1_1_REMAINING_GAPS.md)
+
+---
+
+## 📦 Verified Distribution Packages
+
+| Version | Artifact | SHA-256 Digest | Status |
+| :--- | :--- | :--- | :--- |
+| **v3.1.1** | `release/techdebt-ai-v3.1.1-production.zip` | `e6e626e34713e9127ce8a18e84912d8bb7fff630d33a471dfa2ae0c87dc08527` | Certified Production |
+| **v3.1.0** | `release/techdebt-ai-v3.1.0-production.zip` | `9e40eae2daf5f687ab64052eafa94e17c8c31c1b28e46f7e6cb4d0ad3cdcf93d` | Baseline Release |
 
 ---
 

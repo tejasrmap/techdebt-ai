@@ -1,8 +1,13 @@
 import React, { useState, useEffect } from 'react';
 import { apiClient } from '../services/api';
 import { Subscription, Invoice } from '../types';
+import { NavItem } from '../components/Sidebar';
 
-export const BillingView: React.FC = () => {
+interface BillingViewProps {
+  onNavigate?: (tab: NavItem) => void;
+}
+
+export const BillingView: React.FC<BillingViewProps> = ({ onNavigate }) => {
   const [subscription, setSubscription] = useState<Subscription | null>(null);
   const [invoices, setInvoices] = useState<Invoice[]>([]);
   const [loading, setLoading] = useState(true);
@@ -94,12 +99,26 @@ export const BillingView: React.FC = () => {
             </p>
           </div>
           <div className="flex items-center gap-3">
-            <a
-              href="/pricing"
-              className="px-4 py-2 bg-indigo-600 text-white text-sm font-semibold rounded-lg hover:bg-indigo-700 transition"
-            >
-              Change Plan
-            </a>
+            {onNavigate ? (
+              <button
+                type="button"
+                onClick={() => onNavigate('pricing')}
+                className="px-4 py-2 bg-indigo-600 text-white text-sm font-semibold rounded-lg hover:bg-indigo-700 transition"
+              >
+                Change Plan
+              </button>
+            ) : (
+              <a
+                href="#pricing"
+                onClick={(e) => {
+                  e.preventDefault();
+                  window.dispatchEvent(new CustomEvent('techdebt:navigate', { detail: 'pricing' }));
+                }}
+                className="px-4 py-2 bg-indigo-600 text-white text-sm font-semibold rounded-lg hover:bg-indigo-700 transition"
+              >
+                Change Plan
+              </a>
+            )}
             {subscription?.plan_slug !== 'free' && !subscription?.cancel_at_period_end && (
               <button
                 onClick={handleCancel}

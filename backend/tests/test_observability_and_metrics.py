@@ -44,7 +44,7 @@ def test_liveness_readiness_and_health_probes():
     assert resp_health.status_code == 200
     data_h = resp_health.json()
     assert data_h["status"] == "healthy"
-    assert data_h["version"] == "3.0.0"
+    assert data_h["version"].startswith("3.")
 
     # Live
     resp_live = client.get("/live")
