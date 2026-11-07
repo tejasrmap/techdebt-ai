@@ -15,6 +15,7 @@ import { HealthBadge } from '../components/HealthBadge';
 export const ReportsView: React.FC = () => {
   const [reports, setReports] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
+  const [downloadingId, setDownloadingId] = useState<string | null>(null);
 
   const fetchReports = async () => {
     try {
@@ -25,6 +26,50 @@ export const ReportsView: React.FC = () => {
       console.error(err);
     } finally {
       setLoading(false);
+    }
+  };
+
+  const handleDownloadPdf = async (assessmentId: string, projectName: string) => {
+    try {
+      setDownloadingId(`pdf-${assessmentId}`);
+      await apiClient.downloadPdfReport(assessmentId, `${projectName.replace(/[^a-zA-Z0-9_-]/g, '_')}_audit_report.pdf`);
+    } catch (err) {
+      console.error('Failed to download PDF report', err);
+    } finally {
+      setDownloadingId(null);
+    }
+  };
+
+  const handleDownloadCsv = async (assessmentId: string, projectName: string) => {
+    try {
+      setDownloadingId(`csv-${assessmentId}`);
+      await apiClient.downloadCsvReport(assessmentId, `${projectName.replace(/[^a-zA-Z0-9_-]/g, '_')}_audit_report.csv`);
+    } catch (err) {
+      console.error('Failed to download CSV report', err);
+    } finally {
+      setDownloadingId(null);
+    }
+  };
+
+  const handleDownloadPortfolioPdf = async () => {
+    try {
+      setDownloadingId('portfolio-pdf');
+      await apiClient.downloadPortfolioPdf('enterprise_portfolio_report.pdf');
+    } catch (err) {
+      console.error('Failed to download portfolio PDF', err);
+    } finally {
+      setDownloadingId(null);
+    }
+  };
+
+  const handleDownloadPortfolioCsv = async () => {
+    try {
+      setDownloadingId('portfolio-csv');
+      await apiClient.downloadPortfolioCsv('enterprise_portfolio_report.csv');
+    } catch (err) {
+      console.error('Failed to download portfolio CSV', err);
+    } finally {
+      setDownloadingId(null);
     }
   };
 
@@ -44,6 +89,24 @@ export const ReportsView: React.FC = () => {
           <p className="text-xs text-slate-400 mt-1">
             Download professional, board-ready executive PDF summaries and full dependency CSV manifests.
           </p>
+        </div>
+        <div className="flex items-center gap-2">
+          <button
+            onClick={handleDownloadPortfolioPdf}
+            disabled={downloadingId === 'portfolio-pdf'}
+            className="px-3 py-2 rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-semibold flex items-center gap-1.5 transition-colors shadow-sm disabled:opacity-50"
+          >
+            <Download className="w-3.5 h-3.5" />
+            <span>{downloadingId === 'portfolio-pdf' ? 'Preparing PDF...' : 'Portfolio PDF'}</span>
+          </button>
+          <button
+            onClick={handleDownloadPortfolioCsv}
+            disabled={downloadingId === 'portfolio-csv'}
+            className="px-3 py-2 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 text-xs font-semibold flex items-center gap-1.5 transition-colors disabled:opacity-50"
+          >
+            <FileSpreadsheet className="w-3.5 h-3.5 text-emerald-400" />
+            <span>{downloadingId === 'portfolio-csv' ? 'Preparing CSV...' : 'Portfolio CSV'}</span>
+          </button>
         </div>
       </div>
 
@@ -86,24 +149,22 @@ export const ReportsView: React.FC = () => {
                   </td>
                   <td className="py-3.5 px-4 text-right">
                     <div className="flex items-center justify-end gap-2">
-                      <a
-                        href={apiClient.getPdfReportUrl(r.assessment_id)}
-                        target="_blank"
-                        rel="noreferrer"
-                        className="px-3 py-1.5 rounded-lg bg-rose-500/10 hover:bg-rose-500/20 text-rose-300 border border-rose-500/30 text-xs font-medium flex items-center gap-1.5 transition-colors"
+                      <button
+                        onClick={() => handleDownloadPdf(r.assessment_id, r.project_name)}
+                        disabled={downloadingId === `pdf-${r.assessment_id}`}
+                        className="px-3 py-1.5 rounded-lg bg-rose-500/10 hover:bg-rose-500/20 text-rose-300 border border-rose-500/30 text-xs font-medium flex items-center gap-1.5 transition-colors disabled:opacity-50"
                       >
                         <FileText className="w-3.5 h-3.5" />
-                        <span>PDF Report</span>
-                      </a>
-                      <a
-                        href={apiClient.getCsvReportUrl(r.assessment_id)}
-                        target="_blank"
-                        rel="noreferrer"
-                        className="px-3 py-1.5 rounded-lg bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 text-xs font-medium flex items-center gap-1.5 transition-colors"
+                        <span>{downloadingId === `pdf-${r.assessment_id}` ? 'Downloading...' : 'PDF Report'}</span>
+                      </button>
+                      <button
+                        onClick={() => handleDownloadCsv(r.assessment_id, r.project_name)}
+                        disabled={downloadingId === `csv-${r.assessment_id}`}
+                        className="px-3 py-1.5 rounded-lg bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 text-xs font-medium flex items-center gap-1.5 transition-colors disabled:opacity-50"
                       >
                         <FileSpreadsheet className="w-3.5 h-3.5" />
-                        <span>CSV Audit</span>
-                      </a>
+                        <span>{downloadingId === `csv-${r.assessment_id}` ? 'Downloading...' : 'CSV Audit'}</span>
+                      </button>
                     </div>
                   </td>
                 </tr>

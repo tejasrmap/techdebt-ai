@@ -166,6 +166,72 @@ export const apiClient = {
   },
   getPdfReportUrl: (assessmentId: string) => `/api/v1/reports/pdf/${assessmentId}`,
   getCsvReportUrl: (assessmentId: string) => `/api/v1/reports/csv/${assessmentId}`,
+  downloadPdfReport: async (assessmentId: string, filename = 'audit-report.pdf') => {
+    const res = await api.get(`/reports/pdf/${assessmentId}`, { responseType: 'blob' });
+    const blobUrl = window.URL.createObjectURL(new Blob([res.data], { type: 'application/pdf' }));
+    const a = document.createElement('a');
+    a.href = blobUrl;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    window.URL.revokeObjectURL(blobUrl);
+  },
+  downloadCsvReport: async (assessmentId: string, filename = 'audit-report.csv') => {
+    const res = await api.get(`/reports/csv/${assessmentId}`, { responseType: 'blob' });
+    const blobUrl = window.URL.createObjectURL(new Blob([res.data], { type: 'text/csv' }));
+    const a = document.createElement('a');
+    a.href = blobUrl;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    window.URL.revokeObjectURL(blobUrl);
+  },
+  downloadPortfolioPdf: async (filename = 'portfolio-report.pdf') => {
+    const res = await api.get('/reports/portfolio/pdf', { responseType: 'blob' });
+    const blobUrl = window.URL.createObjectURL(new Blob([res.data], { type: 'application/pdf' }));
+    const a = document.createElement('a');
+    a.href = blobUrl;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    window.URL.revokeObjectURL(blobUrl);
+  },
+  downloadPortfolioCsv: async (filename = 'portfolio-report.csv') => {
+    const res = await api.get('/reports/portfolio/csv', { responseType: 'blob' });
+    const blobUrl = window.URL.createObjectURL(new Blob([res.data], { type: 'text/csv' }));
+    const a = document.createElement('a');
+    a.href = blobUrl;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    window.URL.revokeObjectURL(blobUrl);
+  },
+
+  // Architecture & Remediations
+  getArchitectureReview: async (projectId: string) => {
+    const res = await api.get(`/intelligence/project/${projectId}/architecture-review`);
+    return res.data;
+  },
+  getPrioritizedFindings: async (projectId: string, limit = 50) => {
+    const res = await api.get(`/remediations/prioritized-findings/${projectId}`, { params: { limit } });
+    return res.data;
+  },
+  getRemediationWorkPackages: async (projectId?: string) => {
+    const res = await api.get('/remediations/packages', { params: { project_id: projectId } });
+    return res.data;
+  },
+  createRemediationWorkPackage: async (payload: any) => {
+    const res = await api.post('/remediations/packages', payload);
+    return res.data;
+  },
+  planRemediationROI: async (payload: any) => {
+    const res = await api.post('/remediations/roi-planner', payload);
+    return res.data;
+  },
 
   // Scheduler
   getSchedules: async (): Promise<ScheduledReview[]> => {

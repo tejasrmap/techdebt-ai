@@ -218,24 +218,22 @@ export const AssessmentsView: React.FC<AssessmentsViewProps> = ({ initialProject
 
                   {/* Export Buttons */}
                   <div className="flex items-center gap-2">
-                    <a
-                      href={apiClient.getPdfReportUrl(activeAssessment.id)}
-                      target="_blank"
-                      rel="noreferrer"
-                      className="px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 text-xs font-medium flex items-center gap-1.5"
+                    <button
+                      type="button"
+                      onClick={() => apiClient.downloadPdfReport(activeAssessment.id, `${projects.find(p => p.id === selectedProjectId)?.name || 'project'}_audit.pdf`)}
+                      className="px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 text-xs font-medium flex items-center gap-1.5 transition-colors cursor-pointer"
                     >
                       <FileText className="w-3.5 h-3.5 text-rose-400" />
                       <span>PDF</span>
-                    </a>
-                    <a
-                      href={apiClient.getCsvReportUrl(activeAssessment.id)}
-                      target="_blank"
-                      rel="noreferrer"
-                      className="px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 text-xs font-medium flex items-center gap-1.5"
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => apiClient.downloadCsvReport(activeAssessment.id, `${projects.find(p => p.id === selectedProjectId)?.name || 'project'}_audit.csv`)}
+                      className="px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 text-xs font-medium flex items-center gap-1.5 transition-colors cursor-pointer"
                     >
                       <FileSpreadsheet className="w-3.5 h-3.5 text-emerald-400" />
                       <span>CSV</span>
-                    </a>
+                    </button>
                   </div>
                 </div>
 
