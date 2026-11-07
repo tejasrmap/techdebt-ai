@@ -1,30 +1,37 @@
-# TechDebt AI v2.0.0 — Commercial Production Release Manifest
+# TechDebt AI v3.1.0 — Commercial Production Release Manifest
 
 **Product:** TechDebt AI – Software Engineering Intelligence & Technical Debt Platform  
-**Release Tag:** `v2.0.0`  
+**Release Tag:** `v3.1.0`  
 **Developer Organization:** GT InnoX LLP  
-**Build Timestamp:** 2026-11-06T17:05:00Z  
-**Backend Version:** `2.0.0`  
-**Frontend Version:** `2.0.0`  
-**Distribution Archive:** `release/techdebt-ai-v2.0.0-production.zip`  
-**SHA-256 Digest:** `916a9911dec17f6c239c05d32563a3edbcf17a583c77f8d9740b1778e6d4008d`  
-**Database Migration Revision:** `003_v2_commercial_saas_platform`  
+**Build Timestamp:** 2026-11-07T08:00:00Z  
+**Backend Version:** `3.1.0`  
+**Frontend Version:** `3.1.0`  
+**Distribution Archive:** `release/techdebt-ai-v3.1.0-production.zip`  
+**SHA-256 Digest:** `9e40eae2daf5f687ab64052eafa94e17c8c31c1b28e46f7e6cb4d0ad3cdcf93d`  
+**Database Migration Revision:** `005_v3_1_platform_strengthening`  
 **Commercial SaaS Status:** Certified for Enterprise Commercial Production Deployment  
 
 ---
 
 ## 1. Executive Summary
 
-TechDebt AI v2.0.0 transforms the platform into a complete, enterprise-ready commercial SaaS product. This major release introduces:
+TechDebt AI v3.1.0 is a comprehensive platform strengthening release delivering production reliability, deep engineering intelligence, and commercial readiness across all platform subsystems.
 
-1. **Repository Intelligence & Safe Ingestion**: Full GitHub, GitLab, Bitbucket, and manual ZIP archive ingestion protected with RFC-1918/RFC-3927 SSRF validation, Zip-Slip path traversal defense, and 100MB extraction caps.
-2. **Multi-Language AST Source Code Intelligence**: Static code intelligence engine for Python (AST), JS/TS, Java, Go, PHP, C#, C/C++ measuring cyclomatic complexity, code duplication, dangerous APIs (`eval`, `exec`, `shell=True`, SQL formatting), secret scanning, and maintainability index.
-3. **Advanced Dependency Intelligence**: Lockfile and manifest parsing across 12 package managers with real-time OSV CVE vulnerability matching.
-4. **Commercial 10-Dimension Technical Debt Scoring Engine**: Mathematical debt scoring across 10 weighted dimensions, Technical Debt Ratio (TDR), and remediation hour modeling (`scoring_version = "v2.0.0"`).
-5. **AI Engineering Assistant**: Refactoring recipes, 30/60/90-day modernization roadmaps, and executive briefings.
-6. **Multi-Tenant SaaS & RBAC**: 6 roles, squads/teams, email verification, password reset, TOTP MFA, self-service account deletion, and strict organization data scoping.
-7. **Commercial Billing & Metering**: Free, Starter ($49), Professional ($199), Enterprise ($499) tiers, entitlement enforcement, monthly usage metering, and Stripe checkout with automatic sandbox fallback.
-8. **Modern Dashboard & 31 Screens**: Full responsive SaaS UI in React 19 and Tailwind v4 with zero dead buttons and zero fabricated statistics.
+Key architectural enhancements include:
+
+1. **Durable Ingestion & Snapshot Persistence (`GAP-ING-01..05`)**: Decoupled ingestion from transient container workspaces using `RepositoryIngestionRun`, `RepositoryAnalysisSnapshot`, and `CodeFinding` models. Full support for GitHub, GitLab, Bitbucket, and ZIP archives with strict SSRF defense (fail-closed DNS, CGNAT/IPv4-mapped IP blocking) and symlink/traversal-safe zip extraction.
+2. **Comment-Masked Multi-Language Static Analysis (`GAP-ANA-01`)**: Comment/string-aware complexity and nesting depth analysis for JS/TS, Java, Go, PHP, C#, C/C++ alongside full Python AST parsing and optional coverage artifact ingestion (`lcov.info`, `coverage.xml`).
+3. **Live Vulnerability Intelligence (`GAP-VULN-01`)**: High-throughput Google OSV batch querying with persistent `VulnerabilityCacheEntry` TTL caching, multi-registry support (npm, PyPI, Maven, Crates, Go, Packagist, NuGet, RubyGems), and compound SPDX license classification.
+4. **Reproducible 10-Dimensional Debt Scoring (`GAP-SCR-01`)**: 10-dimension debt engine (`scoring_version = "v3.1.0"`) with evidence coverage confidence calibration, bounded effort estimates (`Low`, `Expected`, `High`), and raw evidence snapshot persistence.
+5. **AI Assistant Provider Abstraction (`GAP-AI-01`)**: Clean Gemini and OpenAI provider abstraction with per-organization encrypted key management, outbound secret redaction, Pydantic schema validation, and finding ID traceability.
+6. **Architecture Intelligence & Dependency Graphs (`GAP-ARCH-01`)**: Source-derived multi-language import graphs, Tarjan SCC circular dependency detection (cycles length >= 2), fan-in/fan-out coupling instability, and layer boundary validation.
+7. **Remediation Prioritization & ROI Engine (`GAP-ROI-01`)**: Deterministic multi-factor prioritization engine, configurable ROI simulation planner, SQL severity ordering, and trackable `RemediationWorkPackage` units.
+8. **Historical Intelligence & Webhook Deduplication (`GAP-HIST-01`)**: Commit-linked 10-dimension snapshot diffing, methodology change notices, fingerprint-based triage carry-forward, and DB-backed `WebhookDeliveryEvent` deduplication with mandatory HMAC verification.
+9. **Reporting & Dashboard Safety (`GAP-REP-01`)**: XML entity escaping preventing ReportLab parser crashes, formula-injection neutralization in CSV exports, and latest-assessment query isolation in dashboard metrics.
+10. **Commercial Billing & Security (`GAP-BILL-01`, `GAP-SEC-01`)**: Server-side Razorpay order verification, DB-backed webhook idempotency, RFC 6238 Base32 TOTP MFA with login challenge, and Supabase PostgreSQL Row Level Security (RLS).
+11. **Distributed Database & Cache Performance (`GAP-DB-01`)**: Migration 005 reconciling schema columns, distributed sliding-window rate limiting with Redis and database fallback (`RateLimitBucket`), and TTL/LRU cache eviction.
+12. **Frontend Reliability & Dark Theme Contrast (`GAP-FE-01`)**: Harmonized dark-mode contrast across all 18 views, authenticated blob report downloads, and TypeScript/Vite compilation.
+13. **CI/CD Pipeline & Deployment (`GAP-OPS-01`)**: PostgreSQL migration validation in GitHub Actions CI, 50MB Nginx upload limits, and production Docker Compose configuration.
 
 ---
 
@@ -32,24 +39,22 @@ TechDebt AI v2.0.0 transforms the platform into a complete, enterprise-ready com
 
 | Quality Gate | Test Scope | Result | Status |
 | :--- | :--- | :--- | :--- |
-| **Backend Test Suite** | 91 Tests (`backend/tests/`) | 88 passed, 3 skipped (optional cloud API keys), 0 failed | **100% PASS** |
-| **Commercial Test Suite** | 10 Tests (`test_repository_intelligence.py`, `test_source_code_analyzer.py`, `test_billing_and_entitlements.py`, `test_commercial_e2e.py`) | 10 passed, 0 failed | **100% PASS** |
-| **Scheduler Resilience** | Dedicated Worker, 10-stage fencing, atomic locking, heartbeat renewal | All tests passed | **PASS** |
-| **Frontend Unit Tests** | Vitest (`frontend/src/test/components.test.tsx`) | 4 passed, 0 failed | **100% PASS** |
-| **TypeScript Typecheck** | `tsc -b --noEmit` | 0 errors | **PASS** |
-| **Static Linter** | `oxlint` | 0 errors | **PASS** |
-| **Frontend Production Build** | Vite production rollup | 0 errors | **PASS** |
-| **Docker Compose** | 4 microservices (Postgres, Web API, Worker, Nginx Frontend) | Validated syntax & non-root containers | **PASS** |
-| **Release Archive Packaging** | Forward-slash normalization, integrity test, SHA256 checksum | Verified | **PASS** |
+| **Backend Test Suite** | 336 Tests (`backend/tests/`) | 324 passed, 12 skipped (PostgreSQL container integration tests), 0 failed | **100% PASS** |
+| **Alembic Migrations** | Fresh SQLite & PostgreSQL 001->005 | Idempotent upgrade head validated | **PASS** |
+| **Frontend Unit Tests** | Vitest (`frontend/src/test/`) | 9 passed, 0 failed | **100% PASS** |
+| **Frontend Static Linter** | `oxlint` (33 files) | 0 errors | **PASS** |
+| **Frontend TypeScript & Build** | `tsc -b && vite build` | Clean production bundle generated (853 kB JS / 60 kB CSS) | **PASS** |
+| **Docker Compose** | 4 services (db, backend, worker, frontend) | Validated syntax, healthchecks, and volume mappings | **PASS** |
+| **Release Archive Packaging** | Forward-slash normalized, integrity tested, SHA256 verified | Verified | **PASS** |
 
 ---
 
 ## 3. Distribution Files & Checksums
 
-- **Distribution ZIP:** `release/techdebt-ai-v2.0.0-production.zip`
+- **Distribution ZIP:** `release/techdebt-ai-v3.1.0-production.zip`
 - **Detached SHA-256 Checksum Sidecar:** `release/SHA256SUMS.txt`
 ```
-916a9911dec17f6c239c05d32563a3edbcf17a583c77f8d9740b1778e6d4008d  techdebt-ai-v2.0.0-production.zip
+9e40eae2daf5f687ab64052eafa94e17c8c31c1b28e46f7e6cb4d0ad3cdcf93d  techdebt-ai-v3.1.0-production.zip
 ```
 
 ---
@@ -58,7 +63,7 @@ TechDebt AI v2.0.0 transforms the platform into a complete, enterprise-ready com
 
 ```bash
 # Verify checksum on Windows (PowerShell)
-Get-FileHash release/techdebt-ai-v2.0.0-production.zip -Algorithm SHA256
+Get-FileHash release/techdebt-ai-v3.1.0-production.zip -Algorithm SHA256
 
 # Verify checksum on Linux / macOS
 sha256sum -c release/SHA256SUMS.txt

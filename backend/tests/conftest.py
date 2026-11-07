@@ -10,7 +10,29 @@ def setup_database_schema():
     with engine.connect() as conn:
         for col_sql in [
             "ALTER TABLE projects ADD COLUMN is_archived BOOLEAN DEFAULT 0",
-            "ALTER TABLE projects ADD COLUMN archived_at DATETIME"
+            "ALTER TABLE projects ADD COLUMN archived_at DATETIME",
+            "ALTER TABLE users ADD COLUMN password_changed_at DATETIME",
+            "ALTER TABLE ai_usage_ledgers ADD COLUMN cost_usd FLOAT DEFAULT 0.0",
+            "ALTER TABLE ai_usage_ledgers ADD COLUMN latency_ms FLOAT DEFAULT 0.0",
+            "ALTER TABLE technologies ADD COLUMN license VARCHAR(150) DEFAULT 'UNKNOWN'",
+            "ALTER TABLE project_technologies ADD COLUMN latest_version VARCHAR(100) DEFAULT 'unknown'",
+            "ALTER TABLE project_technologies ADD COLUMN is_outdated BOOLEAN DEFAULT 0",
+            "ALTER TABLE project_technologies ADD COLUMN license VARCHAR(150) DEFAULT 'UNKNOWN'",
+            "ALTER TABLE project_technologies ADD COLUMN vulnerability_status VARCHAR(50) DEFAULT 'UNKNOWN'",
+            "ALTER TABLE assessments ADD COLUMN commit_sha VARCHAR(100) DEFAULT ''",
+            "ALTER TABLE assessments ADD COLUMN analyzer_version VARCHAR(50) DEFAULT '3.1.0'",
+            "ALTER TABLE risk_findings ADD COLUMN estimated_remediation_hours FLOAT DEFAULT 2.0",
+            "ALTER TABLE risk_findings ADD COLUMN fingerprint VARCHAR(128)",
+            "ALTER TABLE code_findings ADD COLUMN status VARCHAR(50) DEFAULT 'Open'",
+            "ALTER TABLE code_findings ADD COLUMN assigned_to VARCHAR(36)",
+            "ALTER TABLE code_findings ADD COLUMN resolved_at DATETIME",
+            "ALTER TABLE code_findings ADD COLUMN analyzer_name VARCHAR(100) DEFAULT 'SourceCodeAnalyzer'",
+            "ALTER TABLE code_findings ADD COLUMN analyzer_version VARCHAR(50) DEFAULT '3.1.0'",
+            "ALTER TABLE subscriptions ADD COLUMN payment_provider VARCHAR(50) DEFAULT 'razorpay'",
+            "ALTER TABLE subscriptions ADD COLUMN provider_customer_id VARCHAR(255) DEFAULT ''",
+            "ALTER TABLE subscriptions ADD COLUMN provider_subscription_id VARCHAR(255) DEFAULT ''",
+            "ALTER TABLE subscriptions ADD COLUMN provider_order_id VARCHAR(255) DEFAULT ''",
+            "ALTER TABLE subscriptions ADD COLUMN provider_payment_id VARCHAR(255) DEFAULT ''"
         ]:
             try:
                 conn.execute(text(col_sql))

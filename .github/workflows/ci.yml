@@ -39,6 +39,18 @@ jobs:
           python -m pip install --upgrade pip
           pip install -r backend/requirements.txt
 
+      - name: Validate Alembic Migrations against Real PostgreSQL
+        env:
+          DATABASE_URL: postgresql://postgres:testpassword123@localhost:5432/techdebt_test_disposable
+          SECRET_KEY: test-ci-super-secret-key-for-automated-pipeline-only-32b
+          ENCRYPTION_KEY: dGVzdC1lbmNyeXB0aW9uLWtleS1mb3ItY2ktMDEyMzQ1Njc=
+          ENVIRONMENT: test
+          PYTHONPATH: backend:.
+        run: |
+          cd backend
+          alembic upgrade head
+          cd ..
+
       - name: Run Backend Unit & Integration Tests
         env:
           DATABASE_URL: sqlite:///./test_ci.db
@@ -66,6 +78,10 @@ jobs:
       - name: Install Frontend Dependencies
         working-directory: ./frontend
         run: npm ci
+
+      - name: Run Frontend Lint
+        working-directory: ./frontend
+        run: npm run lint
 
       - name: Run Frontend Tests
         working-directory: ./frontend

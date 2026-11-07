@@ -341,7 +341,7 @@ class ArchitectureReviewEngine:
         has_models_or_entities = any(re.search(r"(model|entity|schema|dto)", f, re.IGNORECASE) for f in files)
 
         layering_penalties = 0.0
-        if len(files) >= 5 and not (has_api_or_controllers and has_services_or_domain and has_models_or_entities):
+        if len(files) >= 2 and not (has_api_or_controllers and has_services_or_domain and has_models_or_entities):
             layering_penalties += 20.0
             anti_patterns.append(AntiPatternFinding(
                 rule_id="LACK_OF_TIERED_ABSTRACTION",

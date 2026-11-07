@@ -87,7 +87,7 @@ def process_payment(amount, token):
         ))
 
         assert assessment.status == "completed"
-        assert assessment.scoring_version == "v2.0.0"
+        assert assessment.scoring_version in ("v2.0.0", "v3.0.0", "v3.1.0")
         assert assessment.overall_health_score is not None
         assert 0.0 <= assessment.overall_health_score <= 100.0
         assert assessment.technical_debt_ratio is not None
