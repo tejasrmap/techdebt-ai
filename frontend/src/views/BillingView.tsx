@@ -64,32 +64,32 @@ export const BillingView: React.FC = () => {
     <div className="max-w-6xl mx-auto py-6 px-4 sm:px-6 lg:px-8 space-y-8">
       {/* Title */}
       <div>
-        <h1 className="text-2xl font-bold text-slate-900">Subscription & Billing</h1>
-        <p className="text-sm text-slate-500 mt-1">
+        <h1 className="text-2xl font-bold text-slate-900 dark:text-white">Subscription & Billing</h1>
+        <p className="text-sm text-slate-500 dark:text-slate-400 mt-1">
           Manage your organization plan, resource quotas, and invoice receipts.
         </p>
       </div>
 
       {message && (
-        <div className="p-4 rounded-lg bg-emerald-50 text-emerald-800 border border-emerald-200 text-sm font-medium">
+        <div className="p-4 rounded-lg bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 text-sm font-medium">
           {message}
         </div>
       )}
 
       {/* Subscription Card */}
-      <div className="bg-white rounded-xl border border-slate-200 p-6 shadow-sm">
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-6 border-b border-slate-100">
+      <div className="bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-800 p-6 shadow-sm">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-6 border-b border-slate-100 dark:border-slate-800">
           <div>
             <div className="flex items-center gap-3">
-              <h2 className="text-xl font-bold text-slate-900">{subscription?.plan_name || 'Free Tier'}</h2>
+              <h2 className="text-xl font-bold text-slate-900 dark:text-white">{subscription?.plan_name || 'Free Tier'}</h2>
               <span className={`px-2.5 py-0.5 rounded-full text-xs font-semibold ${
-                subscription?.status === 'active' ? 'bg-emerald-100 text-emerald-800' : 'bg-amber-100 text-amber-800'
+                subscription?.status === 'active' ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20' : 'bg-amber-500/10 text-amber-400 border border-amber-500/20'
               }`}>
                 {subscription?.status?.toUpperCase() || 'ACTIVE'}
               </span>
               <span className="text-xs text-slate-400 capitalize">({subscription?.billing_cycle} billing)</span>
             </div>
-            <p className="text-sm text-slate-500 mt-1">
+            <p className="text-sm text-slate-500 dark:text-slate-400 mt-1">
               Renewal Date: {subscription?.current_period_end ? new Date(subscription.current_period_end).toLocaleDateString() : 'N/A'}
             </p>
           </div>
@@ -162,17 +162,17 @@ export const BillingView: React.FC = () => {
       </div>
 
       {/* Invoices History Table */}
-      <div className="bg-white rounded-xl border border-slate-200 overflow-hidden shadow-sm">
-        <div className="px-6 py-4 border-b border-slate-100">
-          <h2 className="text-lg font-bold text-slate-900">Billing History & Invoices</h2>
+      <div className="bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-800 overflow-hidden shadow-sm">
+        <div className="px-6 py-4 border-b border-slate-100 dark:border-slate-800">
+          <h2 className="text-lg font-bold text-slate-900 dark:text-white">Billing History & Invoices</h2>
         </div>
         {invoices.length === 0 ? (
-          <div className="p-8 text-center text-sm text-slate-500">
+          <div className="p-8 text-center text-sm text-slate-500 dark:text-slate-400">
             No billing transactions or invoices recorded yet.
           </div>
         ) : (
-          <table className="min-w-full divide-y divide-slate-200 text-sm">
-            <thead className="bg-slate-50 text-slate-600 font-semibold">
+          <table className="min-w-full divide-y divide-slate-200 dark:divide-slate-800 text-sm">
+            <thead className="bg-slate-50 dark:bg-slate-800/60 text-slate-600 dark:text-slate-300 font-semibold">
               <tr>
                 <th className="px-6 py-3 text-left">Invoice</th>
                 <th className="px-6 py-3 text-left">Date</th>
@@ -181,12 +181,12 @@ export const BillingView: React.FC = () => {
                 <th className="px-6 py-3 text-right">Receipt</th>
               </tr>
             </thead>
-            <tbody className="divide-y divide-slate-100">
+            <tbody className="divide-y divide-slate-100 dark:divide-slate-800/60">
               {invoices.map((inv) => (
-                <tr key={inv.id} className="hover:bg-slate-50">
-                  <td className="px-6 py-4 font-mono font-medium text-slate-900">{inv.invoice_number}</td>
-                  <td className="px-6 py-4 text-slate-500">{new Date(inv.created_at).toLocaleDateString()}</td>
-                  <td className="px-6 py-4 font-semibold text-slate-900">
+                <tr key={inv.id} className="hover:bg-slate-50 dark:hover:bg-slate-800/40">
+                  <td className="px-6 py-4 font-mono font-medium text-slate-900 dark:text-slate-200">{inv.invoice_number}</td>
+                  <td className="px-6 py-4 text-slate-500 dark:text-slate-400">{new Date(inv.created_at).toLocaleDateString()}</td>
+                  <td className="px-6 py-4 font-semibold text-slate-900 dark:text-white">
                     ${((inv.amount_paid || inv.amount_due || 0)).toFixed(2)} {inv.currency.toUpperCase()}
                   </td>
                   <td className="px-6 py-4">

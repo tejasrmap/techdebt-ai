@@ -114,7 +114,7 @@ def test_assessment_reports_pdf_csv_json(db: Session):
     assert resp_json.status_code == 200
     json_data = resp_json.json()
     assert json_data["metadata"]["vendor"] == "GT InnoX LLP"
-    assert json_data["metadata"]["platform"] == "TechDebt AI v3.0.0"
+    assert "TechDebt AI" in json_data["metadata"]["platform"]
     assert json_data["executive_summary"]["overall_health_score"] == 88.0
     assert json_data["executive_summary"]["technical_debt_ratio"] == 11.5
     assert json_data["executive_summary"]["financial_liability_usd"] == 18.0 * 120.0

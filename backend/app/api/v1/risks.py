@@ -1,5 +1,6 @@
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
+from sqlalchemy import case
 from typing import List, Optional
 from datetime import datetime
 from app.database import get_db
@@ -8,6 +9,15 @@ from app.schemas.schemas import RiskResponse, RiskUpdate
 from app.services.auth_service import get_current_user, require_roles
 
 router = APIRouter(prefix="/risks", tags=["Risk Management"])
+
+SEVERITY_RANK_EXPR = case(
+    (RiskFinding.severity == "Critical", 5),
+    (RiskFinding.severity == "High", 4),
+    (RiskFinding.severity == "Medium", 3),
+    (RiskFinding.severity == "Low", 2),
+    (RiskFinding.severity == "Info", 1),
+    else_=0,
+)
 
 @router.get("", response_model=List[RiskResponse])
 def get_risks(
@@ -33,7 +43,7 @@ def get_risks(
     if severity:
         query = query.filter(RiskFinding.severity == severity)
 
-    risks = query.order_by(RiskFinding.created_at.desc()).all()
+    risks = query.order_by(SEVERITY_RANK_EXPR.desc(), RiskFinding.created_at.desc()).all()
     results = []
     for r in risks:
         results.append({
@@ -50,6 +60,7 @@ def get_risks(
             "status": r.status,
             "assigned_to": r.assigned_to,
             "assignee_name": r.assignee.full_name if r.assignee else None,
+            "estimated_remediation_hours": getattr(r, "estimated_remediation_hours", 2.0) or 2.0,
             "resolution_notes": r.resolution_notes or "",
             "resolved_at": r.resolved_at,
             "created_at": r.created_at

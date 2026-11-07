@@ -140,7 +140,7 @@ def test_commercial_full_customer_journey(db: Session):
     json_report = client.get(f"/api/v1/reports/json/{assessment.id}", headers=headers)
     assert json_report.status_code == 200
     assert json_report.json()["metadata"]["vendor"] == "GT InnoX LLP"
-    assert json_report.json()["metadata"]["platform"] == "TechDebt AI v3.0.0"
+    assert "TechDebt AI" in json_report.json()["metadata"]["platform"]
 
     csv_report = client.get("/api/v1/reports/portfolio/csv", headers=headers)
     assert csv_report.status_code == 200

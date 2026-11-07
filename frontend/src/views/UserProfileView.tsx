@@ -101,8 +101,8 @@ export const UserProfileView: React.FC = () => {
   return (
     <div className="max-w-4xl mx-auto py-6 px-4 sm:px-6 lg:px-8 space-y-8">
       <div>
-        <h1 className="text-2xl font-bold text-slate-900">Account & Security Settings</h1>
-        <p className="text-sm text-slate-500 mt-1">Manage your identity, authentication credentials, and security keys.</p>
+        <h1 className="text-2xl font-bold text-slate-900 dark:text-white">Account & Security Settings</h1>
+        <p className="text-sm text-slate-500 dark:text-slate-400 mt-1">Manage your identity, authentication credentials, and security keys.</p>
       </div>
 
       {message && (

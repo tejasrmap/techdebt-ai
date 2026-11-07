@@ -47,11 +47,30 @@ def _build_assessment_export_data(assessment: Assessment) -> dict:
             "technical_impact": r.technical_impact or ""
         })
 
+    code_findings = (assessment.raw_output or {}).get("code_findings", [])
+    if not code_findings and hasattr(assessment, "code_findings") and assessment.code_findings:
+        code_findings = [
+            {
+                "id": cf.id,
+                "file_path": cf.file_path,
+                "line_start": cf.line_start,
+                "rule_id": cf.rule_id,
+                "category": cf.category,
+                "severity": cf.severity,
+                "title": cf.title,
+                "estimated_remediation_hours": cf.estimated_remediation_hours
+            }
+            for cf in assessment.code_findings
+        ]
+
     hours = assessment.estimated_remediation_hours or 0.0
     return {
         "overall_health_score": assessment.overall_health_score if assessment.overall_health_score is not None else 100.0,
         "risk_classification": assessment.risk_classification or "Healthy",
         "confidence_level": assessment.confidence_level or "High",
+        "commit_sha": assessment.commit_sha or "N/A",
+        "analyzer_version": assessment.analyzer_version or "v3.1.0",
+        "scoring_version": assessment.scoring_version or "v3.1.0",
         "technical_debt_ratio": assessment.technical_debt_ratio or 0.0,
         "estimated_remediation_hours": hours,
         "financial_liability_usd": round(hours * 120.0, 2),
@@ -66,7 +85,7 @@ def _build_assessment_export_data(assessment: Assessment) -> dict:
         },
         "scores": scores,
         "risks": risks,
-        "code_findings": (assessment.raw_output or {}).get("code_findings", [])
+        "code_findings": code_findings
     }
 
 def _build_portfolio_export_data(org_id: str, db: Session) -> dict:

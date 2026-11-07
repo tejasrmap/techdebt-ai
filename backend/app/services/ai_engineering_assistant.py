@@ -3,27 +3,57 @@ import json
 import logging
 from typing import Dict, Any, List, Optional
 import httpx
+from pydantic import BaseModel, Field
 
 from app.config import settings
+from app.services.modular_ai_engine import ModularAIEngine, modular_ai_engine
+from app.services.prompt_defense_service import PromptDefenseService
 
 logger = logging.getLogger(__name__)
 
+class RefactoringRecipeSchema(BaseModel):
+    target_file: str
+    primary_issue: str
+    strategy: str
+    step_by_step: List[str]
+    finding_ids: Optional[List[str]] = Field(default_factory=list)
+    expected_impact: Optional[str] = None
+
+class ModernizationRoadmapSchema(BaseModel):
+    immediate_30_days: List[str]
+    medium_term_60_days: List[str]
+    long_term_90_days: List[str]
+
+class RecommendationsSchema(BaseModel):
+    executive_summary: str
+    architecture_overview: str
+    refactoring_recipes: List[RefactoringRecipeSchema]
+    modernization_roadmap: ModernizationRoadmapSchema
+    grounding_finding_ids: Optional[List[str]] = Field(default_factory=list)
+
 class AIEngineeringAssistant:
     """
-    Commercial AI Engineering Assistant for TechDebt AI v2.0.0.
+    Commercial AI Engineering Assistant for TechDebt AI v3.1.0.
     Produces evidence-grounded architectural explanations, refactoring strategies,
-    30/60/90-day modernization roadmaps, and executive summaries.
+    30/60/90-day modernization roadmaps, and executive summaries with strict schema validation
+    and finding traceability.
     """
 
     def __init__(
         self,
         gemini_api_key: Optional[str] = None,
         openai_api_key: Optional[str] = None,
-        model_name: Optional[str] = None
+        model_name: Optional[str] = None,
+        engine: Optional[ModularAIEngine] = None
     ):
         self.gemini_key = (gemini_api_key or settings.GEMINI_API_KEY or "").strip()
         self.openai_key = (openai_api_key or settings.OPENAI_API_KEY or "").strip()
         self.model_name = model_name or settings.AI_MODEL_NAME
+        self.engine = engine or ModularAIEngine(
+            gemini_api_key=self.gemini_key,
+            openai_api_key=self.openai_key,
+            default_model=self.model_name
+        )
 
     async def generate_engineering_recommendations(
         self,
@@ -38,11 +68,10 @@ class AIEngineeringAssistant:
         """
         Generates actionable technical debt remediation package grounded in actual repository findings.
         """
-        # If API keys are available, prompt LLM with schema validation; otherwise use deterministic engine
         if self.gemini_key or self.openai_key:
             try:
                 llm_response = await self._call_llm_assistant(
-                    project_name, overall_score, risk_classification, hotspots, code_findings, dependencies
+                    project_name, overall_score, risk_classification, hotspots, code_findings, dependencies, total_remediation_hours
                 )
                 if llm_response:
                     return llm_response
@@ -119,7 +148,14 @@ class AIEngineeringAssistant:
             ]
         }
 
+        known_finding_ids = [str(f.get("id")) for f in code_findings if f.get("id")]
+
         return {
+            "origin": "rule_based",
+            "provider": "deterministic",
+            "model": "deterministic-engine-v3",
+            "finding_traceability": known_finding_ids[:5],
+            "cost_usd": 0.0,
             "executive_summary": exec_summary,
             "architecture_overview": (
                 f"Multi-tiered architecture evaluating {len(dependencies)} dependencies across "
@@ -142,9 +178,6 @@ class AIEngineeringAssistant:
         Multi-turn conversational assistant grounded in actual project telemetry.
         Defends against prompt injection and provides actionable architectural advice.
         """
-        from app.services.modular_ai_engine import modular_ai_engine
-        from app.services.prompt_defense_service import PromptDefenseService
-
         conversation_history = conversation_history or []
         telemetry = telemetry or {}
 
@@ -195,12 +228,12 @@ class AIEngineeringAssistant:
         prompt_parts.append(f"User: {clean_user_message}")
         full_prompt = "\n\n".join(prompt_parts)
 
-        # 3. Invoke Modular AI Engine
-        start_time = os.times().elapsed if hasattr(os, "times") else 0
-        ai_resp = await modular_ai_engine.generate_completion(
+        # 3. Invoke Modular AI Engine with mapped preferred provider
+        pref_provider = "gemini" if self.gemini_key else ("openai" if self.openai_key else "deterministic")
+        ai_resp = await self.engine.generate_completion(
             prompt=full_prompt,
             system_prompt=system_prompt,
-            preferred_provider=self.model_name
+            preferred_provider=pref_provider
         )
 
         response_text = ai_resp.content
@@ -254,53 +287,66 @@ class AIEngineeringAssistant:
         ]
 
         return {
+            "origin": "llm_generated" if not ai_resp.fallback_used and ai_resp.provider != "deterministic" else "rule_based",
             "response": response_text,
             "project_name": project_name,
             "grounding_evidence": grounding_evidence,
             "suggested_followups": suggested_followups,
             "provider_used": ai_resp.provider,
+            "model_used": ai_resp.model,
             "latency_ms": ai_resp.latency_ms,
             "fallback_used": ai_resp.fallback_used
         }
 
     async def _call_llm_assistant(
-
         self,
         project_name: str,
         overall_score: float,
         risk_classification: str,
         hotspots: List[Dict[str, Any]],
         code_findings: List[Dict[str, Any]],
-        dependencies: List[Dict[str, Any]]
+        dependencies: List[Dict[str, Any]],
+        total_remediation_hours: float = 10.0
     ) -> Optional[Dict[str, Any]]:
-        """Invokes external LLM with strict XML-fenced context and structured JSON validation."""
+        """Invokes external LLM through ModularAIEngine with Pydantic schema validation and finding traceability."""
         prompt = (
             f"You are a Principal Software Architect. Analyze the technical debt of '{project_name}'.\n"
             f"Score: {overall_score}/100 ({risk_classification})\n"
-            f"<untrusted_crawled_content>\n"
+            f"Estimated Remediation Hours: {total_remediation_hours}h\n"
+            f"Ground your recommendations strictly in these real code findings:\n"
             f"Hotspots: {json.dumps(hotspots[:5])}\n"
             f"Findings Sample: {json.dumps(code_findings[:10])}\n"
             f"Dependencies: {len(dependencies)} packages\n"
-            f"</untrusted_crawled_content>\n"
-            "Return valid JSON containing:\n"
-            "- executive_summary (string)\n"
-            "- architecture_overview (string)\n"
-            "- refactoring_recipes (list of objects with target_file, primary_issue, strategy, step_by_step)\n"
-            "- modernization_roadmap (object with immediate_30_days, medium_term_60_days, long_term_90_days)\n"
+            f"Return valid JSON adhering to the required schema with:\n"
+            f"- executive_summary\n"
+            f"- architecture_overview\n"
+            f"- refactoring_recipes (target_file, primary_issue, strategy, step_by_step, finding_ids, expected_impact)\n"
+            f"- modernization_roadmap (immediate_30_days, medium_term_60_days, long_term_90_days)\n"
+            f"- grounding_finding_ids\n"
         )
 
-        if self.gemini_key:
-            url = f"https://generativelanguage.googleapis.com/v1beta/models/{self.model_name}:generateContent?key={self.gemini_key}"
-            payload = {
-                "contents": [{"parts": [{"text": prompt}]}],
-                "generationConfig": {"temperature": 0.2, "response_mime_type": "application/json"}
-            }
-            async with httpx.AsyncClient(timeout=20.0) as client:
-                res = await client.post(url, json=payload)
-                if res.status_code == 200:
-                    data = res.json()
-                    text = data["candidates"][0]["content"]["parts"][0]["text"]
-                    return json.loads(text)
+        pref_provider = "gemini" if self.gemini_key else ("openai" if self.openai_key else "deterministic")
+        res = await self.engine.generate_completion(
+            prompt=prompt,
+            system_prompt="You are TechDebt AI's Principal Engineering Assistant. Ground recommendations strictly in findings.",
+            output_schema=RecommendationsSchema,
+            preferred_provider=pref_provider
+        )
+
+        if res and res.parsed_json and not res.fallback_used:
+            data = dict(res.parsed_json)
+            known_ids = {str(cf.get("id")) for cf in code_findings if cf.get("id")}
+            raw_grounding = data.get("grounding_finding_ids") or []
+            verified_ids = [fid for fid in raw_grounding if fid in known_ids]
+
+            data["origin"] = "llm_generated"
+            data["provider"] = res.provider
+            data["model"] = res.model
+            data["finding_traceability"] = verified_ids if verified_ids else list(known_ids)[:5]
+            data["latency_ms"] = res.latency_ms
+            data["cost_usd"] = round((res.prompt_tokens / 1000.0 * 0.00015) + (res.completion_tokens / 1000.0 * 0.0006), 6)
+            data["estimated_remediation_hours"] = total_remediation_hours
+            return data
 
         return None
 

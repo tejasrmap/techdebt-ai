@@ -118,8 +118,8 @@ export const CodeFindingsView: React.FC = () => {
       {/* Header */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
-          <h1 className="text-2xl font-bold text-slate-900">Code Diagnostics & Findings</h1>
-          <p className="text-sm text-slate-500 mt-1">
+          <h1 className="text-2xl font-bold text-slate-900 dark:text-white">Code Diagnostics & Findings</h1>
+          <p className="text-sm text-slate-500 dark:text-slate-400 mt-1">
             Fine-grained static analysis, architectural smell detection, and security flaws with remediation recipes.
           </p>
         </div>
@@ -129,7 +129,7 @@ export const CodeFindingsView: React.FC = () => {
           <select
             value={selectedProjectId}
             onChange={(e) => handleProjectChange(e.target.value)}
-            className="px-3 py-2 border border-slate-300 rounded-lg text-sm bg-white font-medium text-slate-700 focus:ring-2 focus:ring-indigo-500"
+            className="px-3 py-2 border border-slate-300 dark:border-slate-700 rounded-lg text-sm bg-white dark:bg-slate-800 font-medium text-slate-700 dark:text-slate-200 focus:ring-2 focus:ring-indigo-500"
           >
             {projects.map((p) => (
               <option key={p.id} value={p.id}>{p.name}</option>
@@ -140,7 +140,7 @@ export const CodeFindingsView: React.FC = () => {
             <select
               value={selectedAssessmentId}
               onChange={(e) => handleAssessmentChange(e.target.value)}
-              className="px-3 py-2 border border-slate-300 rounded-lg text-sm bg-white font-medium text-slate-700 focus:ring-2 focus:ring-indigo-500"
+              className="px-3 py-2 border border-slate-300 dark:border-slate-700 rounded-lg text-sm bg-white dark:bg-slate-800 font-medium text-slate-700 dark:text-slate-200 focus:ring-2 focus:ring-indigo-500"
             >
               {assessments.map((a) => (
                 <option key={a.id} value={a.id}>
@@ -154,15 +154,15 @@ export const CodeFindingsView: React.FC = () => {
 
       {/* Metrics Banner */}
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
-        <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm">
+        <div className="bg-white dark:bg-slate-900 p-4 rounded-xl border border-slate-200 dark:border-slate-800 shadow-sm">
           <p className="text-xs font-semibold uppercase text-slate-400">Total Findings</p>
-          <p className="text-2xl font-extrabold text-slate-900 mt-1">{filteredFindings.length}</p>
+          <p className="text-2xl font-extrabold text-slate-900 dark:text-white mt-1">{filteredFindings.length}</p>
         </div>
-        <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm">
+        <div className="bg-white dark:bg-slate-900 p-4 rounded-xl border border-slate-200 dark:border-slate-800 shadow-sm">
           <p className="text-xs font-semibold uppercase text-slate-400">Critical Severity</p>
           <p className="text-2xl font-extrabold text-rose-600 mt-1">{criticalCount}</p>
         </div>
-        <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm">
+        <div className="bg-white dark:bg-slate-900 p-4 rounded-xl border border-slate-200 dark:border-slate-800 shadow-sm">
           <p className="text-xs font-semibold uppercase text-slate-400">High Severity</p>
           <p className="text-2xl font-extrabold text-amber-600 mt-1">{highCount}</p>
         </div>
@@ -246,10 +246,10 @@ export const CodeFindingsView: React.FC = () => {
                     {f.category}
                   </span>
                 </div>
-                <div className="text-xs font-semibold text-slate-500 flex items-center gap-2">
-                  <span>Effort: <strong className="text-slate-900">{f.estimated_remediation_hours}h</strong></span>
+                <div className="text-xs font-semibold text-slate-500 dark:text-slate-400 flex items-center gap-2">
+                  <span>Effort: <strong className="text-slate-900 dark:text-white">{f.estimated_remediation_hours}h</strong></span>
                   {f.is_auto_verifiable && (
-                    <span className="inline-flex items-center text-emerald-600 bg-emerald-50 px-2 py-0.5 rounded text-[11px]">
+                    <span className="inline-flex items-center text-emerald-600 bg-emerald-50 dark:bg-emerald-500/10 dark:text-emerald-400 px-2 py-0.5 rounded text-[11px]">
                       Auto-verifiable
                     </span>
                   )}
@@ -258,7 +258,7 @@ export const CodeFindingsView: React.FC = () => {
 
               {/* Title & File Anchor */}
               <div className="mt-3">
-                <h3 className="text-base font-bold text-slate-900">{f.title}</h3>
+                <h3 className="text-base font-bold text-slate-900 dark:text-white">{f.title}</h3>
                 <div className="flex items-center gap-1.5 text-xs text-indigo-600 font-mono mt-1">
                   <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />

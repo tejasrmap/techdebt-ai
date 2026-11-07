@@ -180,7 +180,7 @@ class ExplainScoreRequest(BaseModel):
     tech_scores: Optional[List[Dict[str, Any]]] = None
     risk_findings: Optional[List[Dict[str, Any]]] = None
     code_findings: Optional[List[Dict[str, Any]]] = None
-    hourly_rate: float = 100.0
+    hourly_rate: float = CommercialDebtScoringEngine.DEFAULT_HOURLY_RATE
 
 @router.post("/explain-score")
 def explain_debt_score(
@@ -198,7 +198,7 @@ def explain_debt_score(
 @router.get("/{assessment_id}/debt-breakdown")
 def get_assessment_debt_breakdown(
     assessment_id: str,
-    hourly_rate: float = 100.0,
+    hourly_rate: float = CommercialDebtScoringEngine.DEFAULT_HOURLY_RATE,
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
@@ -239,6 +239,18 @@ def get_assessment_debt_breakdown(
     ]
 
     code_findings = raw.get("code_findings", [])
+    if not code_findings and hasattr(assessment, "code_findings") and assessment.code_findings:
+        code_findings = [
+            {
+                "id": cf.id,
+                "file_path": cf.file_path,
+                "category": cf.category,
+                "severity": cf.severity,
+                "title": cf.title,
+                "estimated_remediation_hours": cf.estimated_remediation_hours
+            }
+            for cf in assessment.code_findings
+        ]
 
     breakdown = CommercialDebtScoringEngine.explain_debt_score(
         code_metrics=code_metrics,

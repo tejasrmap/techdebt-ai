@@ -123,8 +123,8 @@ export const RepositoryView: React.FC = () => {
       {/* Header */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
-          <h1 className="text-2xl font-bold text-slate-900">Repository Intelligence & CI/CD</h1>
-          <p className="text-sm text-slate-500 mt-1">
+          <h1 className="text-2xl font-bold text-slate-900 dark:text-white">Repository Intelligence & CI/CD</h1>
+          <p className="text-sm text-slate-500 dark:text-slate-400 mt-1">
             Connect private/public repositories or upload archives for static code intelligence.
           </p>
         </div>
@@ -133,7 +133,7 @@ export const RepositoryView: React.FC = () => {
         <select
           value={selectedProjectId}
           onChange={(e) => handleProjectSelect(e.target.value)}
-          className="px-3 py-2 border border-slate-300 rounded-lg text-sm bg-white font-medium text-slate-700 focus:ring-2 focus:ring-indigo-500"
+          className="px-3 py-2 border border-slate-300 dark:border-slate-700 rounded-lg text-sm bg-white dark:bg-slate-800 font-medium text-slate-700 dark:text-slate-200 focus:ring-2 focus:ring-indigo-500"
         >
           {projects.map((p) => (
             <option key={p.id} value={p.id}>{p.name}</option>
@@ -205,9 +205,9 @@ export const RepositoryView: React.FC = () => {
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
           {/* Git URL Connect Form */}
-          <div className="bg-white rounded-xl border border-slate-200 p-6 shadow-sm">
-            <h2 className="text-base font-bold text-slate-900 mb-1">Connect Remote Repository</h2>
-            <p className="text-xs text-slate-500 mb-5">
+          <div className="bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-800 p-6 shadow-sm">
+            <h2 className="text-base font-bold text-slate-900 dark:text-white mb-1">Connect Remote Repository</h2>
+            <p className="text-xs text-slate-500 dark:text-slate-400 mb-5">
               Supports public or token-authenticated GitHub, GitLab, and Bitbucket URLs with SSRF protection.
             </p>
 

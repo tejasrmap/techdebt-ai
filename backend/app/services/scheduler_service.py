@@ -601,17 +601,21 @@ async def execute_project_review(
                 pending_evidence_records.append(ev_rec)
 
             # Prepare Risk Findings (with deterministic fingerprint & triage carry-forward)
+            seen_risk_fps = set()
             for r in analysis.get("risks", []):
                 r_title = r.get("title", "")
                 fp = hashlib.sha256(
                     f"{project.id}:{tech.id}:{r_title.strip().lower()}".encode("utf-8")
                 ).hexdigest()
+                if fp in seen_risk_fps:
+                    continue
+                seen_risk_fps.add(fp)
                 prior_triaged = (
                     db.query(RiskFinding)
                     .filter(
                         RiskFinding.project_id == project.id,
                         RiskFinding.fingerprint == fp,
-                        RiskFinding.status.in_(["Accepted Risk", "Mitigated"]),
+                        RiskFinding.status.in_(["Accepted Risk", "Mitigated", "Resolved"]),
                     )
                     .order_by(RiskFinding.created_at.desc())
                     .first()
@@ -844,7 +848,9 @@ async def execute_project_review(
                 for s in pending_score_records
             ] if pending_score_records else None,
             risk_findings=all_risks,
-            code_findings=raw_code_findings
+            code_findings=raw_code_findings,
+            documentation_coverage_pct=code_metrics.get("documentation_coverage_pct") if code_metrics else None,
+            measured_test_coverage_pct=code_metrics.get("coverage_percentage") if code_metrics else None
         )
 
         avg_score = debt_calc["overall_health_score"]
@@ -892,6 +898,9 @@ async def execute_project_review(
                     "code_metrics": code_metrics,
                     "code_findings": raw_code_findings,
                     "dimensional_scores": debt_calc["dimensional_scores"],
+                    "remediation_hours_range": debt_calc.get("remediation_hours_range"),
+                    "confidence_level": debt_calc.get("confidence_level"),
+                    "evidence_coverage_pct": debt_calc.get("evidence_coverage_pct"),
                     "missing_signals": debt_calc.get("missing_signals", []),
                     "coverage_summary": debt_calc.get("coverage_summary", {}),
                 },

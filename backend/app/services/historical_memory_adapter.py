@@ -221,19 +221,57 @@ class HistoricalAssessmentMemoryAdapter:
 
         curr_scores = {s.technology_id: s for s in current_assessment.scores}
         
+        dimensions = [
+            "code_maintainability", "architecture", "dependency", "security",
+            "test_quality", "documentation", "reliability", "performance",
+            "complexity", "upgrade_risk"
+        ]
+        dimensional_changes = []
+        for d in dimensions:
+            curr_d = getattr(current_assessment, f"{d}_score", None)
+            prior_d = getattr(prior_assessment, f"{d}_score", None) if prior_assessment else None
+            delta_d = round((curr_d or 0.0) - (prior_d or 0.0), 1) if prior_d is not None and curr_d is not None else 0.0
+            dimensional_changes.append({
+                "dimension": d,
+                "current_score": curr_d,
+                "prior_score": prior_d,
+                "delta": delta_d
+            })
+
+        methodology_changed = bool(
+            prior_assessment and (
+                current_assessment.scoring_version != prior_assessment.scoring_version or
+                current_assessment.analyzer_version != prior_assessment.analyzer_version
+            )
+        )
+
         comparison = {
             "current_assessment_id": current_assessment.id,
             "current_date": current_assessment.created_at.strftime("%Y-%m-%d %H:%M"),
             "current_health_score": current_assessment.overall_health_score,
             "current_risk_classification": current_assessment.risk_classification,
+            "commit_sha": current_assessment.commit_sha,
+            "analyzer_version": current_assessment.analyzer_version,
+            "scoring_version": current_assessment.scoring_version,
             "has_prior_assessment": prior_assessment is not None,
             "prior_health_score": prior_assessment.overall_health_score if prior_assessment else None,
+            "prior_commit_sha": prior_assessment.commit_sha if prior_assessment else None,
+            "prior_analyzer_version": prior_assessment.analyzer_version if prior_assessment else None,
+            "prior_scoring_version": prior_assessment.scoring_version if prior_assessment else None,
             "score_change": round((current_assessment.overall_health_score or 0) - (prior_assessment.overall_health_score or 0), 1) if prior_assessment else 0.0,
+            "methodology_changed": methodology_changed,
+            "methodology_notice": (
+                f"Note: Analyzer or scoring engine version changed ({prior_assessment.analyzer_version}/{prior_assessment.scoring_version} -> "
+                f"{current_assessment.analyzer_version}/{current_assessment.scoring_version}). "
+                f"Score deltas reflect enhanced detection rules as well as codebase changes."
+            ) if methodology_changed else "",
             "storage_provider": actual_provider,
             "remote_sync_status": actual_sync_status,
+            "dimensional_changes": dimensional_changes,
             "technology_changes": [],
             "new_risks": [],
             "resolved_risks": [],
+            "code_findings_delta": {},
             "next_steps_recommendation": ""
         }
 
@@ -272,6 +310,31 @@ class HistoricalAssessmentMemoryAdapter:
                         "severity": pr.severity,
                         "title": pr.title
                     })
+
+            # Code findings diff
+            from app.models.all_models import CodeFinding
+            curr_cfs = db.query(CodeFinding).filter(CodeFinding.assessment_id == current_assessment.id).all()
+            prior_cfs = db.query(CodeFinding).filter(CodeFinding.assessment_id == prior_assessment.id).all()
+            prior_cf_keys = {f"{cf.file_path}:{cf.rule_id}:{cf.line_start}": cf for cf in prior_cfs}
+            curr_cf_keys = {f"{cf.file_path}:{cf.rule_id}:{cf.line_start}": cf for cf in curr_cfs}
+
+            new_cfs = [cf for k, cf in curr_cf_keys.items() if k not in prior_cf_keys]
+            resolved_cfs = [cf for k, cf in prior_cf_keys.items() if k not in curr_cf_keys]
+
+            comparison["code_findings_delta"] = {
+                "current_total": len(curr_cfs),
+                "prior_total": len(prior_cfs),
+                "new_count": len(new_cfs),
+                "resolved_count": len(resolved_cfs),
+                "new_sample": [
+                    {"file_path": cf.file_path, "rule_id": cf.rule_id, "severity": cf.severity, "title": cf.title}
+                    for cf in new_cfs[:5]
+                ],
+                "resolved_sample": [
+                    {"file_path": cf.file_path, "rule_id": cf.rule_id, "severity": cf.severity, "title": cf.title}
+                    for cf in resolved_cfs[:5]
+                ]
+            }
 
             if comparison["score_change"] < 0:
                 comparison["next_steps_recommendation"] = "Prioritize updating packages that experienced version drift or new deprecation notices. Review the high-priority risk tickets."

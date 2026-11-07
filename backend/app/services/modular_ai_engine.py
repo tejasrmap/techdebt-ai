@@ -60,7 +60,12 @@ class GeminiProvider(BaseLLMProvider):
             raise RuntimeError("Gemini API key is not configured")
 
         m = model or self.default_model
-        url = f"https://generativelanguage.googleapis.com/v1beta/models/{m}:generateContent?key={self.api_key}"
+        # Use clean URL without sensitive API key in query string; transmit key via x-goog-api-key header
+        url = f"https://generativelanguage.googleapis.com/v1beta/models/{m}:generateContent"
+        headers = {
+            "x-goog-api-key": self.api_key,
+            "Content-Type": "application/json"
+        }
         
         contents = []
         if system_prompt:
@@ -78,7 +83,7 @@ class GeminiProvider(BaseLLMProvider):
 
         start_time = time.time()
         async with httpx.AsyncClient(timeout=30.0) as client:
-            resp = await client.post(url, json=body)
+            resp = await client.post(url, headers=headers, json=body)
             latency = (time.time() - start_time) * 1000.0
 
             if resp.status_code != 200:
@@ -293,16 +298,32 @@ class DeterministicFallbackProvider(BaseLLMProvider):
         return {"provider": "deterministic", "status": "healthy", "latency_ms": 0.5}
 
 class ModularAIEngine:
-    def __init__(self):
+    def __init__(
+        self,
+        gemini_api_key: Optional[str] = None,
+        openai_api_key: Optional[str] = None,
+        anthropic_api_key: Optional[str] = None,
+        default_provider: Optional[str] = None,
+        default_model: Optional[str] = None
+    ):
         self.providers: Dict[str, BaseLLMProvider] = {
-            "gemini": GeminiProvider(),
-            "openai": OpenAIProvider(),
-            "anthropic": AnthropicProvider(),
+            "gemini": GeminiProvider(api_key=gemini_api_key, default_model=default_model or "gemini-1.5-flash"),
+            "openai": OpenAIProvider(api_key=openai_api_key, default_model=default_model or "gpt-4o-mini"),
+            "anthropic": AnthropicProvider(api_key=anthropic_api_key, default_model=default_model or "claude-3-5-sonnet-20241022"),
             "deterministic": DeterministicFallbackProvider()
         }
-        self.default_provider = settings.DEFAULT_AI_PROVIDER.lower() if settings.DEFAULT_AI_PROVIDER else "gemini"
+        self.default_provider = (default_provider or settings.DEFAULT_AI_PROVIDER or "gemini").lower()
         if self.default_provider not in self.providers:
             self.default_provider = "gemini"
+
+    @classmethod
+    def for_org_config(cls, org_config: Any) -> "ModularAIEngine":
+        return cls(
+            gemini_api_key=getattr(org_config, "gemini_api_key", None),
+            openai_api_key=getattr(org_config, "openai_api_key", None),
+            default_provider=getattr(org_config, "default_ai_provider", None),
+            default_model=getattr(org_config, "ai_model_name", None)
+        )
 
     def get_provider(self, name: str) -> BaseLLMProvider:
         return self.providers.get(name.lower(), self.providers["deterministic"])
@@ -329,10 +350,30 @@ class ModularAIEngine:
             raise ValueError(f"Prompt injection threat blocked: {', '.join(defense_inspection['detected_threats'])}")
         effective_prompt = defense_inspection["sanitized_text"]
 
+        # Outbound Secret Redaction: strip API keys/tokens before transmitting to external LLM
+        effective_prompt = PromptDefenseService.redact_secrets(effective_prompt)
+        if system_prompt:
+            system_prompt = PromptDefenseService.redact_secrets(system_prompt)
+
+        # Resolve preferred provider name or model identifier
+        mapped_provider = None
+        if preferred_provider:
+            pref = preferred_provider.lower().strip()
+            if pref in self.providers:
+                mapped_provider = pref
+            elif "gemini" in pref:
+                mapped_provider = "gemini"
+            elif "gpt" in pref or "openai" in pref:
+                mapped_provider = "openai"
+            elif "claude" in pref or "anthropic" in pref:
+                mapped_provider = "anthropic"
+            elif "deterministic" in pref:
+                mapped_provider = "deterministic"
+
         # Determine trial order
         candidates = []
-        if preferred_provider and preferred_provider.lower() in self.providers:
-            candidates.append(preferred_provider.lower())
+        if mapped_provider and mapped_provider in self.providers:
+            candidates.append(mapped_provider)
         if self.default_provider not in candidates:
             candidates.append(self.default_provider)
         for p in ["gemini", "openai", "anthropic"]:
@@ -348,14 +389,14 @@ class ModularAIEngine:
 
             try:
                 res = await provider.generate_text(prompt=effective_prompt, system_prompt=system_prompt)
-                if p_name != candidates[0]:
+                if candidates and p_name != candidates[0]:
                     res.fallback_used = True
                 
                 # Sanitize output from credential leaks
                 out_check = PromptDefenseService.inspect_output(res.content)
                 res.content = out_check["sanitized_output"]
 
-                # If output schema requested, validate JSON
+                # If output schema requested, validate JSON and enforce schema contract
                 if output_schema:
                     try:
                         clean_content = res.content.strip()
@@ -366,9 +407,12 @@ class ModularAIEngine:
                         if clean_content.endswith("```"):
                             clean_content = clean_content[:-3]
                         parsed = json.loads(clean_content.strip())
-                        res.parsed_json = parsed
-                    except Exception as parse_err:
-                        logger.warning(f"Failed to parse JSON from {p_name}: {parse_err}")
+                        validated = output_schema.model_validate(parsed)
+                        res.parsed_json = validated.model_dump() if hasattr(validated, "model_dump") else validated.dict()
+                    except Exception as schema_err:
+                        logger.warning(f"Failed to parse or validate schema from {p_name}: {schema_err}")
+                        if p_name != "deterministic":
+                            continue
                 return res
             except Exception as e:
                 logger.warning(f"AI provider '{p_name}' failed during generation: {e}; attempting fallback.")

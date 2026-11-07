@@ -67,22 +67,26 @@ def get_dashboard_overview(current_user: User = Depends(get_current_user), db: S
         .scalar() or 0
     )
 
-    # Latest completed assessments per project
-    latest_assessments = (
-        db.query(Assessment)
-        .filter(Assessment.project_id.in_(project_ids), Assessment.status == "completed")
-        .order_by(Assessment.created_at.desc())
-        .limit(10)
-        .all()
-    )
+    # Determine latest completed assessment per active project to avoid historical double-counting
+    latest_assessment_ids = []
+    latest_assessments = []
+    for p in projects:
+        la = (
+            db.query(Assessment)
+            .filter(Assessment.project_id == p.id, Assessment.status == "completed")
+            .order_by(Assessment.created_at.desc())
+            .first()
+        )
+        if la:
+            latest_assessment_ids.append(la.id)
+            latest_assessments.append(la)
 
-    # 3. Technologies requiring attention & outdated dependencies
+    # 3. Technologies requiring attention & outdated dependencies from latest active assessments
     scores = (
         db.query(TechnologyScore)
-        .join(Assessment)
-        .filter(Assessment.project_id.in_(project_ids))
+        .filter(TechnologyScore.assessment_id.in_(latest_assessment_ids))
         .all()
-    )
+    ) if latest_assessment_ids else []
     
     attention_count = sum(1 for s in scores if s.overall_score < 70)
     outdated_count = sum(1 for s in scores if s.version_currency < 80)
@@ -287,25 +291,35 @@ def get_executive_kpis(current_user: User = Depends(get_current_user), db: Sessi
     resolved_risks = [r for r in all_risks if r.status == "Resolved" and r.resolved_at and r.created_at]
     mttr = round(sum((r.resolved_at - r.created_at).total_seconds() / 86400.0 for r in resolved_risks) / len(resolved_risks), 1) if resolved_risks else 0.0
 
-    # Aggregate assessment metrics
-    assessments = db.query(Assessment).filter(Assessment.project_id.in_(project_ids), Assessment.status == "completed").all()
-    total_loc = sum(a.lines_of_code or 0 for a in assessments)
-    valid_tdr = [a.technical_debt_ratio for a in assessments if a.technical_debt_ratio is not None]
+    # Aggregate metrics strictly from the latest completed assessment per project
+    latest_assessments = []
+    for p in projects:
+        la = (
+            db.query(Assessment)
+            .filter(Assessment.project_id == p.id, Assessment.status == "completed")
+            .order_by(Assessment.created_at.desc())
+            .first()
+        )
+        if la:
+            latest_assessments.append(la)
+
+    total_loc = sum(a.lines_of_code or 0 for a in latest_assessments)
+    valid_tdr = [a.technical_debt_ratio for a in latest_assessments if a.technical_debt_ratio is not None]
     avg_tdr = round(sum(valid_tdr) / len(valid_tdr), 1) if valid_tdr else 0.0
 
-    # 5 Pillars
-    code_scores = [a.code_maintainability_score for a in assessments if a.code_maintainability_score is not None]
-    arch_scores = [a.architecture_score for a in assessments if a.architecture_score is not None]
-    sec_scores = [a.security_score for a in assessments if a.security_score is not None]
-    dep_scores = [a.dependency_score for a in assessments if a.dependency_score is not None]
-    maint_scores = [a.reliability_score for a in assessments if a.reliability_score is not None]
+    # 5 Pillars from latest assessments without fabricated default scores
+    code_scores = [a.code_maintainability_score for a in latest_assessments if a.code_maintainability_score is not None]
+    arch_scores = [a.architecture_score for a in latest_assessments if a.architecture_score is not None]
+    sec_scores = [a.security_score for a in latest_assessments if a.security_score is not None]
+    dep_scores = [a.dependency_score for a in latest_assessments if a.dependency_score is not None]
+    maint_scores = [a.reliability_score for a in latest_assessments if a.reliability_score is not None]
 
     pillar_breakdown = {
-        "code_quality": round(sum(code_scores) / len(code_scores), 1) if code_scores else 85.0,
-        "architecture": round(sum(arch_scores) / len(arch_scores), 1) if arch_scores else 82.0,
-        "security": round(sum(sec_scores) / len(sec_scores), 1) if sec_scores else 90.0,
-        "dependencies": round(sum(dep_scores) / len(dep_scores), 1) if dep_scores else 80.0,
-        "maintainability": round(sum(maint_scores) / len(maint_scores), 1) if maint_scores else 84.0,
+        "code_quality": round(sum(code_scores) / len(code_scores), 1) if code_scores else 0.0,
+        "architecture": round(sum(arch_scores) / len(arch_scores), 1) if arch_scores else 0.0,
+        "security": round(sum(sec_scores) / len(sec_scores), 1) if sec_scores else 0.0,
+        "dependencies": round(sum(dep_scores) / len(dep_scores), 1) if dep_scores else 0.0,
+        "maintainability": round(sum(maint_scores) / len(maint_scores), 1) if maint_scores else 0.0,
     }
 
     avg_pillar = sum(pillar_breakdown.values()) / 5.0
