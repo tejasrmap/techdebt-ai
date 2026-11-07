@@ -1300,6 +1300,21 @@ class BillingService:
                 db.query(PaymentOrder).filter(PaymentOrder.provider_payment_id == payment_id).first()
             )
 
+        if not payment_order and (event_type in ("payment.captured", "order.paid") or order_id):
+            webhook_row = cls._begin_webhook_event(
+                db=db,
+                provider="razorpay",
+                event_id=event_key,
+                event_type=event_type,
+                payload_hash=payload_hash,
+                org_id=notes.get("org_id"),
+            )
+            if webhook_row:
+                webhook_row.status = "rejected"
+                webhook_row.error_message = f"Rejected unrecognised internal payment order: {order_id or payment_id}"
+                db.commit()
+            raise PermissionError("Unrecognised payment order: cannot activate plan without valid server-persisted PaymentOrder.")
+
         org_id = payment_order.org_id if payment_order else notes.get("org_id")
         plan_slug = payment_order.plan_id if payment_order else (notes.get("plan_slug") or "starter")
         billing_cycle = payment_order.billing_cycle if payment_order else (notes.get("billing_cycle") or "monthly")

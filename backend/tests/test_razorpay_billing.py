@@ -2,12 +2,13 @@ import json
 import uuid
 import hmac
 import hashlib
+from datetime import datetime, timedelta
 from unittest.mock import patch
 from fastapi.testclient import TestClient
 
 from app.main import app
 from app.database import SessionLocal
-from app.models.all_models import Organization, Subscription, Invoice
+from app.models.all_models import Organization, Subscription, Invoice, PaymentOrder
 from app.services.billing_service import BillingService
 
 client = TestClient(app)
@@ -152,6 +153,21 @@ def test_razorpay_webhook_signature_and_lifecycle(monkeypatch):
         db.add(org)
         db.commit()
 
+        order_ref = f"order_{uuid.uuid4().hex[:12]}"
+        pay_order = PaymentOrder(
+            org_id=org_id,
+            provider="razorpay",
+            provider_order_id=order_ref,
+            plan_id="enterprise",
+            billing_cycle="yearly",
+            amount_subunits=299000,
+            currency="USD",
+            status="created",
+            expires_at=datetime.utcnow() + timedelta(hours=24)
+        )
+        db.add(pay_order)
+        db.commit()
+
         event_id = f"rzp_evt_{uuid.uuid4().hex[:10]}"
         payload = {
             "event": "payment.captured",
@@ -159,7 +175,9 @@ def test_razorpay_webhook_signature_and_lifecycle(monkeypatch):
                 "payment": {
                     "entity": {
                         "id": f"pay_{uuid.uuid4().hex[:12]}",
-                        "order_id": f"order_{uuid.uuid4().hex[:12]}",
+                        "order_id": order_ref,
+                        "amount": 299000,
+                        "currency": "USD",
                         "notes": {
                             "org_id": org_id,
                             "plan_slug": "enterprise",
