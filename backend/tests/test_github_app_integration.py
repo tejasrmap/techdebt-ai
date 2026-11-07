@@ -60,11 +60,16 @@ def test_github_app_jwt_generation():
 def test_github_app_disconnect_endpoint():
     """Verify disconnect endpoint purges cached installation credentials."""
     rate_limiter.reset()
-    reg = client.post("/api/v1/auth/login", json={
-        "email": "gh_tester@githubtest.com",
-        "password": "SecurePassword123!"
-    }).json()
-    headers = {"Authorization": f"Bearer {reg['access_token']}"}
+    unique_suffix = uuid.uuid4().hex[:8]
+    reg_res = client.post("/api/v1/auth/register", json={
+        "email": f"gh_disc_{unique_suffix}@githubtest.com",
+        "password": "SecurePassword123!",
+        "full_name": "GH Disconnect Tester",
+        "organization_name": f"GH Disconnect Org {unique_suffix}"
+    })
+    assert reg_res.status_code == 200
+    token = reg_res.json()["access_token"]
+    headers = {"Authorization": f"Bearer {token}"}
 
     res = client.post("/api/v1/repositories/github/disconnect/test-inst-123", headers=headers)
     assert res.status_code == 200

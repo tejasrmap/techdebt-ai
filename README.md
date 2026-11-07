@@ -205,7 +205,7 @@ Services:
 
 | Version | Artifact | SHA-256 Digest | Status |
 | :--- | :--- | :--- | :--- |
-| **v3.1.1** | `release/techdebt-ai-v3.1.1-production.zip` | `bf7ed905639ee8e37e72b3b3dc7c2b52a83ae2f78f70601ed92dbcb41c83ec22` | Certified Production |
+| **v3.1.1** | `release/techdebt-ai-v3.1.1-production.zip` | `fb7c559dec8273f08b512471f28c4ae1fda8dbe375fce7a48b861eff7aa9dc90` | Certified Production |
 | **v3.1.0** | `release/techdebt-ai-v3.1.0-production.zip` | `9e40eae2daf5f687ab64052eafa94e17c8c31c1b28e46f7e6cb4d0ad3cdcf93d` | Baseline Release |
 
 ---
