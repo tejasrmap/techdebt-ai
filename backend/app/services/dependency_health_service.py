@@ -215,7 +215,7 @@ class DependencyHealthService:
         """
         if current_v.raw.lower() in ("latest", "*") or target_v.raw.lower() in ("latest", "*"):
             return {
-                "diff_type": "UP_TO_DATE",
+                "diff_type": "UNKNOWN",
                 "major_diff": 0,
                 "minor_diff": 0,
                 "patch_diff": 0,
@@ -330,6 +330,9 @@ class DependencyHealthService:
         elif diff["diff_type"] == "UP_TO_DATE":
             strategy = "MAINTAIN: Package is up to date."
             recommended_version = curr_info.raw
+        elif diff["diff_type"] == "UNKNOWN":
+            strategy = "PIN_VERSION: Unpinned or unresolved dependency version. Pin to a specific stable release."
+            recommended_version = resolved_target if resolved_target not in ("latest", "*", "") else "PIN_REQUIRED"
         elif diff["diff_type"] == "PATCH":
             strategy = f"DIRECT_UPDATE: Safe backwards-compatible patch update to {resolved_target}."
             recommended_version = resolved_target

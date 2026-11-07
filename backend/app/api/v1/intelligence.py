@@ -171,37 +171,48 @@ class LicenseAuditRequest(BaseModel):
     is_commercial: bool = True
 
 @router.post("/vulnerabilities/check")
-def check_vulnerabilities(
+async def check_vulnerabilities(
     req: VulnerabilityCheckRequest,
-    current_user: User = Depends(get_current_user)
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
 ):
     if req.package and req.version:
-        vulns = VulnerabilityService.check_package_vulnerabilities(
+        res = await VulnerabilityService.check_package_vulnerabilities_async(
             package_name=req.package,
             version_str=req.version,
-            ecosystem=req.ecosystem
+            ecosystem=req.ecosystem,
+            db=db
         )
+        severities = [v.get("severity", "NONE").upper() for v in res.get("vulnerabilities", [])]
+        sev_priority = {"CRITICAL": 4, "HIGH": 3, "MEDIUM": 2, "LOW": 1, "NONE": 0}
+        highest = max(severities, key=lambda s: sev_priority.get(s, 0), default="NONE")
         return {
             "package": req.package,
             "version": req.version,
             "ecosystem": req.ecosystem,
-            "vulnerabilities": vulns,
-            "count": len(vulns),
-            "highest_severity": max([v["severity"] for v in vulns], default="NONE")
+            "status": res.get("status", "UNKNOWN"),
+            "vulnerabilities": res.get("vulnerabilities", []),
+            "count": res.get("count", 0),
+            "highest_severity": highest,
+            "cached": res.get("cached", False)
         }
     elif req.dependencies:
         results = []
+        statuses = []
         for dep in req.dependencies:
             name = dep.get("name", "")
             ver = dep.get("version", "latest")
             eco = dep.get("ecosystem")
-            vulns = VulnerabilityService.check_package_vulnerabilities(name, ver, eco)
+            res = await VulnerabilityService.check_package_vulnerabilities_async(name, ver, eco, db=db)
+            vulns = res.get("vulnerabilities", [])
+            statuses.append(res.get("status", "UNKNOWN"))
             if vulns:
                 results.extend(vulns)
         return {
             "vulnerabilities": results,
             "count": len(results),
-            "highest_severity": max([v["severity"] for v in results], default="NONE")
+            "highest_severity": max([v["severity"] for v in results], default="NONE"),
+            "overall_check_status": "CHECK_FAILED" if any(s == "CHECK_FAILED" for s in statuses) else ("VULNERABLE" if results else "CLEAN")
         }
     else:
         raise HTTPException(status_code=400, detail="Provide either package + version or a dependencies list.")
@@ -234,7 +245,7 @@ def audit_licenses(
         raise HTTPException(status_code=400, detail="Provide either a license string or a dependencies list.")
 
 @router.get("/project/{project_id}/security-audit")
-def get_project_security_audit(
+async def get_project_security_audit(
     project_id: str,
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
@@ -252,10 +263,10 @@ def get_project_security_audit(
                 "name": tech.name,
                 "version": link.installed_version or "latest",
                 "ecosystem": tech.ecosystem or "",
-                "license": getattr(tech, "license", "MIT") # Default permissive if not set
+                "license": link.license or getattr(tech, "license", "UNKNOWN")
             })
 
-    audit_result = VulnerabilityService.audit_project(dep_payloads, is_commercial_product=True)
+    audit_result = await VulnerabilityService.audit_project_async(dep_payloads, is_commercial_product=True, db=db)
     audit_result["project_id"] = project.id
     audit_result["project_name"] = project.name
     return audit_result
