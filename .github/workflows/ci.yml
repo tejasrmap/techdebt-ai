@@ -69,6 +69,14 @@ jobs:
         working-directory: ./backend
         run: |
           if [ -f pytest_run.log ]; then
+            FAILURES=$(grep -E "^FAILED " pytest_run.log | head -n 15 | tr '\n' '; ')
+            if [ -n "$FAILURES" ]; then
+              echo "::error title=Pytest Failures::$FAILURES"
+            fi
+            ERRORS=$(grep -E "^ERROR " pytest_run.log | head -n 15 | tr '\n' '; ')
+            if [ -n "$ERRORS" ]; then
+              echo "::error title=Pytest Errors::$ERRORS"
+            fi
             echo "## Pytest Run Failures & Summary" >> $GITHUB_STEP_SUMMARY
             echo '```text' >> $GITHUB_STEP_SUMMARY
             grep -E "FAILED|ERROR|short test summary" -A 100 pytest_run.log >> $GITHUB_STEP_SUMMARY || tail -n 60 pytest_run.log >> $GITHUB_STEP_SUMMARY
