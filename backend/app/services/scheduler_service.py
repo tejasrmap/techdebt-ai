@@ -601,17 +601,21 @@ async def execute_project_review(
                 pending_evidence_records.append(ev_rec)
 
             # Prepare Risk Findings (with deterministic fingerprint & triage carry-forward)
+            seen_risk_fps = set()
             for r in analysis.get("risks", []):
                 r_title = r.get("title", "")
                 fp = hashlib.sha256(
                     f"{project.id}:{tech.id}:{r_title.strip().lower()}".encode("utf-8")
                 ).hexdigest()
+                if fp in seen_risk_fps:
+                    continue
+                seen_risk_fps.add(fp)
                 prior_triaged = (
                     db.query(RiskFinding)
                     .filter(
                         RiskFinding.project_id == project.id,
                         RiskFinding.fingerprint == fp,
-                        RiskFinding.status.in_(["Accepted Risk", "Mitigated"]),
+                        RiskFinding.status.in_(["Accepted Risk", "Mitigated", "Resolved"]),
                     )
                     .order_by(RiskFinding.created_at.desc())
                     .first()
