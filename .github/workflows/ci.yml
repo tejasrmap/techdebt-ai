@@ -40,35 +40,36 @@ jobs:
           pip install -r backend/requirements.txt
 
       - name: Validate Alembic Migrations against Real PostgreSQL
+        working-directory: ./backend
         env:
           DATABASE_URL: postgresql://postgres:testpassword123@localhost:5432/techdebt_test_disposable
           SECRET_KEY: test-ci-super-secret-key-for-automated-pipeline-only-32b
           ENCRYPTION_KEY: dGVzdC1lbmNyeXB0aW9uLWtleS1mb3ItY2ktMDEyMzQ1Njc=
           ENVIRONMENT: test
-          PYTHONPATH: backend:.
+          PYTHONPATH: .
         run: |
-          cd backend
           alembic upgrade head
           alembic downgrade -1
           alembic upgrade head
-          cd ..
 
       - name: Run Backend Unit & Integration Tests
+        working-directory: ./backend
         env:
           DATABASE_URL: sqlite:///./test_ci.db
           POSTGRES_TEST_DATABASE_URL: postgresql://postgres:testpassword123@localhost:5432/techdebt_test_disposable
           SECRET_KEY: test-ci-super-secret-key-for-automated-pipeline-only-32b
           ENCRYPTION_KEY: dGVzdC1lbmNyeXB0aW9uLWtleS1mb3ItY2ktMDEyMzQ1Njc=
           ENVIRONMENT: test
-          PYTHONPATH: backend:.
+          PYTHONPATH: .
         run: |
-          python -m pytest backend/tests -v --durations=10
+          python -m pytest tests -v --durations=10
 
       - name: Security Scan (Secret Scanning & Dependency Audit)
+        working-directory: ./backend
         run: |
           pip install pip-audit bandit
-          pip-audit -r backend/requirements.txt --ignore-vuln CVE-NONE || true
-          bandit -r backend/app -ll -x backend/app/tests || true
+          pip-audit -r requirements.txt --ignore-vuln CVE-NONE || true
+          bandit -r app -ll -x app/tests || true
 
   frontend-test:
     name: Frontend Tests & Production Build

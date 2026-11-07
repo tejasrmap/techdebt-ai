@@ -54,3 +54,4 @@
 1. **AI Usage SQL Aggregation:** Replaced linear array scanning in Python with native PostgreSQL grouped aggregation (`COUNT`, `SUM(total_tokens)`, `SUM(cost_usd)`), resulting in a **98% latency reduction** on usage telemetry queries.
 2. **CIDR Binary Matching in Rate Limiter:** Cached network CIDR checks provide sub-microsecond IP resolution without invoking slow DNS lookups.
 3. **OSV Vulnerability Freshness Caching:** In-memory + PostgreSQL TTL caching serves 96% of recurring dependency checks under 2ms.
+

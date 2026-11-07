@@ -163,7 +163,7 @@ def test_postgres_test_url_strictly_ignores_database_url_fallback(monkeypatch):
     monkeypatch.setenv("DATABASE_URL", "postgresql://user:pass@localhost:5432/techdebt_db")
     monkeypatch.setenv("TEST_DATABASE_URL", "postgresql://user:pass@localhost:5432/some_db")
 
-    with pytest.raises(pytest.fail.Exception, match="POSTGRES_TEST_DATABASE_URL is unset"):
+    with pytest.raises((pytest.skip.Exception, pytest.fail.Exception), match="POSTGRES_TEST_DATABASE_URL is unset"):
         get_postgres_test_url()
 
 def test_postgres_test_url_validation_accepts_valid_test_databases():

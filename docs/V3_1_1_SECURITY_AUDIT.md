@@ -75,3 +75,4 @@ The v3.1.1 security audit examined the application codebase across the following
 ## 4. Conclusion
 
 TechDebt AI v3.1.1 demonstrates defense-in-depth across the entire application stack. All identified high and medium security risks have been remediated and verified with automated test suites.
+

@@ -97,3 +97,4 @@ def test_honest_coverage_notes_on_empty_files():
     assert "No source files registered" in res["coverage_notes"]
     assert res["dependency_graph"]["total_modules"] == 0
     assert res["dependency_graph"]["total_dependencies"] == 0
+

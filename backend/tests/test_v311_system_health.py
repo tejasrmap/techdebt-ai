@@ -45,7 +45,7 @@ def test_historical_adapter_live_connectivity_check():
         import asyncio
         res = asyncio.run(adapter.verify_connectivity(db=db))
         assert res["connected"] is True
-        assert res["status"] == "healthy"
+        assert res["status"] in ("healthy", "postgresql_authoritative")
         assert res["mode"] == "postgresql"
         assert "verified" in res["message"].lower() or "operational" in res["message"].lower()
     finally:

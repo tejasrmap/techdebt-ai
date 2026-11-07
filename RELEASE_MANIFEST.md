@@ -7,7 +7,7 @@
 **Backend Version:** `3.1.1`  
 **Frontend Version:** `3.1.1`  
 **Distribution Archive:** `release/techdebt-ai-v3.1.1-production.zip`  
-**SHA-256 Digest:** `e6e626e34713e9127ce8a18e84912d8bb7fff630d33a471dfa2ae0c87dc08527`  
+**SHA-256 Digest:** `bf7ed905639ee8e37e72b3b3dc7c2b52a83ae2f78f70601ed92dbcb41c83ec22`  
 **Database Migration Revision:** `005_v3_1_platform_strengthening`  
 **Commercial SaaS Status:** Certified for Enterprise Commercial Production Deployment  
 
@@ -50,7 +50,7 @@ Key architectural and operational hardening delivered in v3.1.1:
 - **Distribution ZIP (v3.1.0):** `release/techdebt-ai-v3.1.0-production.zip`
 - **Detached SHA-256 Checksum Sidecar:** `release/SHA256SUMS.txt` and `SHA256SUMS.txt`
 ```
-e6e626e34713e9127ce8a18e84912d8bb7fff630d33a471dfa2ae0c87dc08527  techdebt-ai-v3.1.1-production.zip
+bf7ed905639ee8e37e72b3b3dc7c2b52a83ae2f78f70601ed92dbcb41c83ec22  techdebt-ai-v3.1.1-production.zip
 9e40eae2daf5f687ab64052eafa94e17c8c31c1b28e46f7e6cb4d0ad3cdcf93d  techdebt-ai-v3.1.0-production.zip
 ```
 
